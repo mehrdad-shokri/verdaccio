@@ -1,0 +1,15 @@
+{
+  "verbose": false,
+  "ext": "ts,json,js",
+  "ignore": [
+    "*.test.js",
+    "*.spec.js",
+    "test/*",
+    "assets/*",
+    "docker-examples/*",
+    "packages/plugins/ui-theme/*",
+    "scripts/*",
+    "systemd/*",
+    "docs/*"
+  ]
+}

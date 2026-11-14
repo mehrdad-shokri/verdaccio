@@ -1,14 +1,14 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Documentation 📚
+    url: https://verdaccio.org/docs/installation
+    about: Find more information in our documentation resources
+  - name: Feature Request 🌟
+    url: https://github.com/orgs/verdaccio/discussions/new?category=ideas
+    about: 🆕 Open a new feature request discussion 🙏
   - name: Question 🤷🏻‍♂️
-    url: https://stackoverflow.com/questions/tagged/verdaccio
-    about: We encorage you to open new questions on Stackoverflow
-  - name: Security Report 🛡
-    url: https://github.com/verdaccio/verdaccio/security/policy
-    about: I want to report a security vulnerability
+    url: https://github.com/verdaccio/verdaccio/discussions/new?category=q-a
+    about: 🆕 Open a new Q&A discussion 🙏
   - name: Chat 🏘
-    url: http://chat.verdaccio.org
-    about: For a quick question you should do it through our community chat
-  - name: User Interface Report 👩🏼‍🎨👨🏼‍🎨
-    url: https://github.com/verdaccio/ui/issues/new/choose
-    about: Any report related with the User Interface should be posted in another repository
+    url: https://discord.gg/7qWJxBf
+    about: Quick question? Try out Discord chat, you can get faster feedback

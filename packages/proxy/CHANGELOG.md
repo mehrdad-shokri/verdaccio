@@ -1,0 +1,2062 @@
+# @verdaccio/proxy
+
+## 9.0.0-next-9.44
+
+### Patch Changes
+
+- Updated dependencies [7f75311]
+  - @verdaccio/config@9.0.0-next-9.44
+  - @verdaccio/core@9.0.0-next-9.44
+
+## 9.0.0-next-9.43
+
+### Minor Changes
+
+- aeaf4d8: Make `npm audit signatures` work through Verdaccio for packages proxied from an uplink, behind the experimental `flags.signatures` setting.
+  
+  Verdaccio already kept the `dist.signatures` and `dist.attestations` fields that registry.npmjs.org attaches to every version, but it did not serve the two routes the npm CLI reads to verify them. npm resolves signing keys by registry host, so against Verdaccio it requested `GET /-/npm/v1/keys`, received a 404 and aborted the whole command with `EMISSINGSIGNATUREKEY` on the first package coming from npmjs. Attestation bundles are fetched from the registry the package was installed from as well, so `GET /-/npm/v1/attestations/<name>@<version>` also returned 404.
+  
+  Both routes now exist when `flags.signatures: true` is set in the configuration (the feature is experimental and may change). `GET /-/npm/v1/keys` returns the signing keys of every configured uplink merged by key id (refreshed hourly) and answers 404 when none publishes keys. `GET /-/npm/v1/attestations/<name>@<version>` relays the attestations from the first uplink that proxies the package, applying the package `access` rules, and answers 404 when the uplink has none. With this `npm audit signatures` verifies registry signatures and provenance attestations of proxied packages exactly as it does against registry.npmjs.org. Enable it with:
+  
+  ```yaml
+  flags:
+    signatures: true
+  ```
+  
+  Packages published to Verdaccio itself are not signed yet. npm treats any registry that publishes keys as a registry whose packages should all be signed, so once the flag is on `npm audit signatures` lists every locally published package as having a missing registry signature and exits with code 1; proxied packages verify, local ones are reported. Keep the flag off if that report would break a CI gate, until Verdaccio signs local packages. `npm publish --provenance` is still rejected.
+- 8c56d8e: Show the provenance and registry signature of a version in the web UI.
+  
+  The package sidebar gets a "Provenance" section, under "Distribution", when the selected version carries a sigstore attestation or a registry signature, the fields registry.npmjs.org attaches to every version it signs. Its chip reads "Provenance: SLSA v1" for a version with provenance and "Registry signature" for one that only has a signature. Clicking it opens a dialog with the statement type, the signing key ids and a link to the attestation bundle. Nothing is verified in the browser: the dialog states what the registry metadata contains, and verification remains the job of `npm audit signatures`.
+  
+  The dialog also shows what the provenance statement says about the build, read from the attestation bundle by a new web endpoint, `GET /-/verdaccio/data/package/provenance/<name>?v=<version>`: the builder (GitHub Actions, self-hosted or not, or GitLab CI/CD, the two environments npm and Yarn generate provenance in), the source repository, ref and commit, the workflow file or job, the build run and the Sigstore transparency log entry, each linked to its origin. The endpoint relays the bundle from the uplink the version was synced from, applies the package access rules and answers 404 for versions without attestations. The build details therefore need an uplink that serves the npm attestation endpoint, `/-/npm/v1/attestations/<name>@<version>`, as registry.npmjs.org does; a Verdaccio upstream will only do so once it gains the registry signature routes, which are a separate change, and against such upstreams the dialog shows the summary and the bundle link alone. The request is made only when the dialog opens and only when the server announces the endpoint through the new `capabilities.provenance` UI option, so the theme keeps working against older servers without a single failing request: the chip, the dialog summary and the bundle link come from the sidebar data alone, and the build details simply stay out.
+
+### Patch Changes
+
+- Updated dependencies [aeaf4d8]
+  - @verdaccio/config@9.0.0-next-9.43
+  - @verdaccio/core@9.0.0-next-9.43
+
+## 9.0.0-next-9.42
+
+### Patch Changes
+
+- Updated dependencies [1d1ba47]
+  - @verdaccio/core@9.0.0-next-9.42
+  - @verdaccio/config@9.0.0-next-9.42
+
+## 9.0.0-next-9.41
+
+### Patch Changes
+
+- @verdaccio/config@9.0.0-next-9.41
+  - @verdaccio/core@9.0.0-next-9.41
+
+## 9.0.0-next-9.40
+
+### Patch Changes
+
+- @verdaccio/config@9.0.0-next-9.40
+  - @verdaccio/core@9.0.0-next-9.40
+
+## 9.0.0-next-9.39
+
+### Patch Changes
+
+- Updated dependencies [eb0cb3d]
+  - @verdaccio/config@9.0.0-next-9.39
+  - @verdaccio/core@9.0.0-next-9.39
+
+## 9.0.0-next-9.38
+
+### Patch Changes
+
+- Updated dependencies [d8ff951]
+  - @verdaccio/config@9.0.0-next-9.38
+  - @verdaccio/core@9.0.0-next-9.38
+
+## 9.0.0-next-9.37
+
+### Patch Changes
+
+- 8a6e1a1: Update runtime dependencies across the registry and run the official Docker image on Node.js 26.
+  
+  The Docker image now builds and runs on `node:26-alpine`, the Node.js line that becomes Active LTS on 28 October 2026; Node.js 24 entered maintenance on 20 October. Operators who extend the image should check that any native addons they install support Node.js 26.
+  
+  The uplink, notification and audit HTTP client moves to `got` 16. Verdaccio does not use the options removed in that release (the HTTP/2 agent slot, `dnsCache` and the old `auth` stubs), so uplink configuration, `agent_options` and `https_proxy` behave as before. Uplink responses with an error status, such as a 404 for a package the uplink does not have, keep appearing in the `http` log as they did with `got` 15. The CLI moves to `chalk` 6 and the web UI's README renderer to `marked` 18.
+  
+  The remaining updates are minor or patch releases: `express` 5.3.0 in every package that serves HTTP, `express-rate-limit` 8.7.1, `pino` 10.4.0, `js-yaml` 5.5.0, `tar-stream` 3.2.2, `sanitize-filename` 1.6.4, `process-warning` 5.1.1 and `memfs` 4.80.0. No configuration changes are required.
+- Updated dependencies [4a483d0]
+- Updated dependencies [c2eafec]
+- Updated dependencies [8a6e1a1]
+  - @verdaccio/core@9.0.0-next-9.37
+  - @verdaccio/config@9.0.0-next-9.37
+
+## 9.0.0-next-9.36
+
+### Patch Changes
+
+- 1cdb33c: Preserve configured uplink subpaths and authentication headers when forwarding search requests.
+  Searches to uplinks such as `https://host.example/private/npm` retain `/private/npm` and use the
+  uplink's authentication and configured headers. Sensitive client headers are not forwarded.
+  
+  Normalize the pathname without modifying the configured URL, including when the uplink URL
+  contains a query string or fragment. The search request retains its own query parameters and
+  does not lose the last segment of the uplink subpath.
+- Updated dependencies [5009e4d]
+  - @verdaccio/config@9.0.0-next-9.36
+  - @verdaccio/core@9.0.0-next-9.36
+
+## 9.0.0-next-9.35
+
+### Patch Changes
+
+- Updated dependencies [1693358]
+  - @verdaccio/core@9.0.0-next-9.35
+  - @verdaccio/config@9.0.0-next-9.35
+
+## 9.0.0-next-9.34
+
+### Patch Changes
+
+- Updated dependencies [83eb46c]
+- Updated dependencies [0cac607]
+- Updated dependencies [b6cc475]
+  - @verdaccio/core@9.0.0-next-9.34
+  - @verdaccio/config@9.0.0-next-9.34
+
+## 9.0.0-next-9.33
+
+### Patch Changes
+
+- b2e2a5a: Avoid reporting cancelled web searches as uplink failures in error logs.
+  
+  In the 9.x proxy modules and the Verdaccio 7 releases that consume them, closing a
+  web search connection could log an uplink error even though the registry had
+  cancelled the request itself. Non-paginated searches now follow the same logging
+  policy as paginated searches: cancellation still rejects the request, while DNS,
+  connection, timeout, and invalid-response failures continue to be logged when the
+  request has not been cancelled. No configuration changes are required.
+- Updated dependencies [950fd9f]
+  - @verdaccio/config@9.0.0-next-9.33
+  - @verdaccio/core@9.0.0-next-9.33
+
+## 9.0.0-next-9.32
+
+### Patch Changes
+
+- 297c20e: Preserve the original cause in web search error logs when an uplink fails without an HTTP response or returns invalid JSON. DNS failures, refused or interrupted connections, timeouts, and cancellation no longer produce a secondary `TypeError` while handling the error.
+  
+  This affects the proxy modules on the 9.x line and the Verdaccio 7 releases that consume them. Web searches continue returning permitted local packages and results from healthy uplinks.
+- 3618123: fix: do not fetch client-controlled dist.tarball urls off-uplink
+  
+  A locally published package stores its `versions[].dist.tarball` verbatim. When the
+  tarball file was later removed, a tarball request fell back to that url and the registry
+  fetched it — an SSRF that also attached the uplink `Authorization` header when a single
+  uplink was configured. Off-uplink urls are now only fetched for uplink-synced packages
+  (recorded in `_distfiles`), and the uplink credential is only sent to a host the uplink
+  actually serves.
+  
+  Tarball fetches are now observable through the logger: the outgoing request is logged at
+  `http` level (an autogenerated off-uplink proxy shows as `verdaccio-<pkg>`), a refused
+  off-uplink fetch is logged at `warn`, and serving an off-uplink tarball via the
+  autogenerated proxy is logged at `http`.
+- 73415bb: Fix Search v1 pagination by collecting bounded uplink pages from offset zero and applying the client offset once, after deduplication and access checks. Keep result ordering stable across uplink rounds, fetch additional candidates when needed, and cancel work on disconnect or after 30 seconds. Skip uplinks that fail before contributing any results so local and healthy-uplink searches remain available. Return 503 when an uplink fails after contributing a page, stops advancing, or the shared budget of 100 requests / 25,000 candidates is exhausted instead of returning an incomplete successful page.
+- Updated dependencies [34cd0fb]
+- Updated dependencies [59f1350]
+- Updated dependencies [f3f8976]
+- Updated dependencies [cbfcfd2]
+- Updated dependencies [a4e2da0]
+  - @verdaccio/config@9.0.0-next-9.32
+  - @verdaccio/core@9.0.0-next-9.32
+
+## 9.0.0-next-9.31
+
+### Patch Changes
+
+- 7054084: fix: tarball download reliability — uplink selection, no client hangs, content-length, npmjs parity
+  
+  - **store**: tarballs with a missing `_distfiles` record no longer 404 forever —
+    `lookupDistFile` falls back to the version's own dist metadata (conventional
+    `<name>-<version>.tgz` fast path, then a full scan that also resolves
+    bare-digest tarball urls). The uplink for a tarball is now the one that
+    actually serves it (recorded on the distfile, or matched by url on a path
+    segment boundary) instead of the last configured match, so credentials of an
+    unrelated uplink are never sent to it.
+  - **api/middleware**: when a tarball stream fails after the response headers
+    were already sent (eg. the uplink dropped the connection mid-download), the
+    response is destroyed so the client sees the failure immediately instead of
+    hanging forever; when it fails before headers are sent, the error body is
+    served as JSON like registry.npmjs.org.
+  - **proxy**: the got retry limit is no longer derived from `max_fails` (the
+    circuit-breaker threshold) — a high `max_fails` multiplied every uplink
+    timeout, so a slow uplink could block requests almost indefinitely. Retries
+    have their own `retry` uplink setting (default 2, matching got).
+  - **store**: the abbreviated manifest (`application/vnd.npm.install-v1+json`)
+    no longer includes `readme`, `readmeFilename`, `_id` and `_rev`, matching
+    the npm registry contract.
+  - **store/server**: tarball responses now carry a `Content-Length` header (the
+    `content-length` event was swallowed by the stream wrapper) and are no
+    longer re-gzipped by the compression middleware for gzip-accepting clients —
+    npm and undici accept gzip by default, so every (already gzipped) `.tgz`
+    download paid CPU for nothing. JSON metadata responses stay compressed.
+  - **core**: the `application/octet-stream` constant no longer carries a
+    spurious `charset=utf-8`, matching registry.npmjs.org.
+- Updated dependencies [c2b5897]
+- Updated dependencies [68ab0d4]
+- Updated dependencies [c52b632]
+- Updated dependencies [7054084]
+- Updated dependencies [cf15239]
+  - @verdaccio/core@9.0.0-next-9.31
+  - @verdaccio/config@9.0.0-next-9.31
+
+## 9.0.0-next-9.30
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.30
+- @verdaccio/config@9.0.0-next-9.30
+
+## 9.0.0-next-9.29
+
+### Patch Changes
+
+- Updated dependencies [30601b3]
+- Updated dependencies [30601b3]
+  - @verdaccio/core@9.0.0-next-9.29
+  - @verdaccio/config@9.0.0-next-9.29
+
+## 9.0.0-next-9.28
+
+### Patch Changes
+
+- Updated dependencies [dd4f91c]
+  - @verdaccio/core@9.0.0-next-9.28
+  - @verdaccio/config@9.0.0-next-9.28
+
+## 9.0.0-next-9.27
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.27
+- @verdaccio/config@9.0.0-next-9.27
+
+## 9.0.0-next-9.26
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.26
+- @verdaccio/config@9.0.0-next-9.26
+
+## 9.0.0-next-9.25
+
+### Patch Changes
+
+- Updated dependencies [4861978]
+- Updated dependencies [d7937a3]
+  - @verdaccio/config@9.0.0-next-9.25
+  - @verdaccio/core@9.0.0-next-9.25
+
+## 9.0.0-next-9.24
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.24
+- @verdaccio/config@9.0.0-next-9.24
+
+## 9.0.0-next-9.23
+
+### Patch Changes
+
+- Updated dependencies [5ec045c]
+  - @verdaccio/core@9.0.0-next-9.23
+  - @verdaccio/config@9.0.0-next-9.23
+
+## 9.0.0-next-9.22
+
+### Patch Changes
+
+- 3574350: chore: return 403 error when uplink does on tarball path
+
+  Previously, any non-200/404 response from an uplink (e.g. a security proxy blocking a package download) would result in a generic 500 error being returned to the client. This change propagates 403 responses from the uplink through to the client, including any error detail from the response body, so callers can distinguish authorization failures from other upstream errors.
+
+- Updated dependencies [6795216]
+- Updated dependencies [c499c4e]
+  - @verdaccio/config@9.0.0-next-9.22
+  - @verdaccio/core@9.0.0-next-9.22
+
+## 9.0.0-next-9.21
+
+### Patch Changes
+
+- Updated dependencies [5aa8cca]
+  - @verdaccio/core@9.0.0-next-9.21
+  - @verdaccio/config@9.0.0-next-9.21
+
+## 9.0.0-next-9.20
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.20
+- @verdaccio/config@9.0.0-next-9.20
+
+## 9.0.0-next-9.19
+
+### Patch Changes
+
+- 47f122f: chore(deps): clean-up unused and duplicates
+- Updated dependencies [47f122f]
+  - @verdaccio/core@9.0.0-next-9.19
+  - @verdaccio/config@9.0.0-next-9.19
+
+## 9.0.0-next-9.18
+
+### Patch Changes
+
+- 16f7b18: chore(proxy): fix test URLs
+- Updated dependencies [62ebd31]
+- Updated dependencies [e8421bd]
+- Updated dependencies [d9203d0]
+  - @verdaccio/core@9.0.0-next-9.18
+  - @verdaccio/config@9.0.0-next-9.18
+
+## 9.0.0-next-9.17
+
+### Patch Changes
+
+- 6408a85: chore: force release
+- Updated dependencies [6408a85]
+  - @verdaccio/config@9.0.0-next-9.17
+  - @verdaccio/core@9.0.0-next-9.17
+
+## 9.0.0-next-9.16
+
+### Patch Changes
+
+- cdf3150: fix: refactor unit test
+- Updated dependencies [66f7e61]
+- Updated dependencies [cdf3150]
+  - @verdaccio/core@9.0.0-next-9.16
+  - @verdaccio/config@9.0.0-next-9.16
+
+## 9.0.0-next-9.15
+
+### Patch Changes
+
+- 6338cb6: fix(proxy): vite:dts build error
+- Updated dependencies [75caa33]
+- Updated dependencies [3299cc7]
+- Updated dependencies [ea8beb2]
+  - @verdaccio/config@9.0.0-next-9.15
+  - @verdaccio/core@9.0.0-next-9.15
+
+## 9.0.0-next-9.14
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.14
+- @verdaccio/config@9.0.0-next-9.14
+
+## 9.0.0-next-9.13
+
+### Patch Changes
+
+- Updated dependencies [39c369e]
+  - @verdaccio/core@9.0.0-next-9.13
+  - @verdaccio/config@9.0.0-next-9.13
+
+## 9.0.0-next-9.12
+
+### Patch Changes
+
+- Updated dependencies [64c904a]
+  - @verdaccio/config@9.0.0-next-9.12
+  - @verdaccio/core@9.0.0-next-9.12
+
+## 9.0.0-next-9.11
+
+### Patch Changes
+
+- Updated dependencies [96cb0c4]
+  - @verdaccio/config@9.0.0-next-9.11
+  - @verdaccio/core@9.0.0-next-9.11
+
+## 9.0.0-next-9.10
+
+### Patch Changes
+
+- Updated dependencies [747d6ab]
+  - @verdaccio/config@9.0.0-next-9.10
+  - @verdaccio/core@9.0.0-next-9.10
+
+## 9.0.0-next-9.9
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.9
+- @verdaccio/config@9.0.0-next-9.9
+
+## 9.0.0-next-9.8
+
+### Patch Changes
+
+- d68a86d: refactor: migrate from lodash to lodash-es and replace simple utilities with native JS
+- Updated dependencies [d68a86d]
+  - @verdaccio/config@9.0.0-next-9.8
+  - @verdaccio/core@9.0.0-next-9.8
+
+## 9.0.0-next-9.7
+
+### Minor Changes
+
+- d0405c9: feat: replace got-cjs and node-fetch with got v14
+
+  Replace `got-cjs` and `node-fetch` with the official `got` v14 package in `verdaccio-audit` and `@verdaccio/proxy`. This removes two legacy HTTP client dependencies in favor of a single, actively maintained one. Also replaces `https-proxy-agent` with `hpagent` in the audit plugin for consistency with the proxy package.
+
+### Patch Changes
+
+- Updated dependencies [f2e488d]
+  - @verdaccio/config@9.0.0-next-9.7
+  - @verdaccio/core@9.0.0-next-9.7
+
+## 9.0.0-next-9.6
+
+### Patch Changes
+
+- Updated dependencies [1905990]
+  - @verdaccio/core@9.0.0-next-9.6
+  - @verdaccio/config@9.0.0-next-9.6
+
+## 9.0.0-next-9.5
+
+### Patch Changes
+
+- fd09d4f: chore: update vitest to 4.1.0 and @vitest/coverage-v8 to 4.1.0
+- Updated dependencies [8f9bcc8]
+- Updated dependencies [a9d7b4a]
+- Updated dependencies [1d5462f]
+- Updated dependencies [fd09d4f]
+  - @verdaccio/core@9.0.0-next-9.5
+  - @verdaccio/config@9.0.0-next-9.5
+
+## 9.0.0-next-9.4
+
+### Major Changes
+
+- 52a6520: Replace Babel and esbuild build pipeline with Vite 8 across all packages. All packages now output dual ESM (.mjs) and CJS (.js) formats with TypeScript declarations generated via vite-plugin-dts. Includes shared build config at vite.lib.config.mjs, proper exports field in all package.json files, and fixes for type-only re-exports required by Rollup's stricter module analysis.
+
+### Patch Changes
+
+- Updated dependencies [52a6520]
+  - @verdaccio/config@9.0.0-next-9.4
+  - @verdaccio/core@9.0.0-next-9.4
+
+## 9.0.0-next-9.3
+
+### Minor Changes
+
+- 66e7538: fix: static files returning 404 after Express 5 upgrade
+
+  - fix(middleware): resolve static file 404s caused by `send@1.x` dotfile detection on absolute paths containing dot-prefixed directories (e.g. `.nvm`). Use `res.sendFile(filename, { root })` instead of absolute paths
+  - fix(middleware): handle Express 5 `{*all}` wildcard returning arrays instead of strings for `req.params`
+  - feat(middleware): add configurable `dotfiles` middleware to block dotfile path requests (`.env`, `.git/config`, etc.) with deny/ignore/allow policies
+  - feat(middleware): add `hideStaticLogs` option to `log()` middleware to suppress `/-/static/` request logging (defaults to true)
+  - fix(proxy): resolve `http-errors` deprecation warning for non-error status codes (304)
+  - feat(config): add `server.dotfiles` and `server.hideStaticLogs` options to configuration schema with secure defaults
+  - chore: add `pnpm global:install` script for testing local builds globally
+  - ci: add smoke test workflow for local builds verifying version, web UI rendering, static assets, and package installation
+
+### Patch Changes
+
+- Updated dependencies [66e7538]
+  - @verdaccio/config@9.0.0-next-9.3
+  - @verdaccio/core@9.0.0-next-9.3
+
+## 9.0.0-next-9.2
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.2
+- @verdaccio/config@9.0.0-next-9.2
+
+## 9.0.0-next-9.1
+
+### Patch Changes
+
+- Updated dependencies [dd9bad3]
+  - @verdaccio/core@9.0.0-next-9.1
+  - @verdaccio/config@9.0.0-next-9.1
+
+## 9.0.0-next-9.0
+
+### Major Changes
+
+- 7f80af5: chore: bump package
+
+### Patch Changes
+
+- Updated dependencies [7f80af5]
+- Updated dependencies [34da6e6]
+  - @verdaccio/config@9.0.0-next-9.0
+  - @verdaccio/core@9.0.0-next-9.0
+
+## 8.0.0-next-8.31
+
+### Patch Changes
+
+- Updated dependencies [b5eccfc]
+  - @verdaccio/config@8.0.0-next-8.31
+  - @verdaccio/core@8.0.0-next-8.31
+
+## 8.0.0-next-8.30
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.30
+- @verdaccio/config@8.0.0-next-8.30
+
+## 8.0.0-next-8.29
+
+### Patch Changes
+
+- Updated dependencies [4edcae8]
+- Updated dependencies [184632c]
+  - @verdaccio/core@8.0.0-next-8.29
+  - @verdaccio/config@8.0.0-next-8.29
+
+## 8.0.0-next-8.28
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.28
+- @verdaccio/config@8.0.0-next-8.28
+
+## 8.0.0-next-8.27
+
+### Patch Changes
+
+- @verdaccio/config@8.0.0-next-8.27
+- @verdaccio/core@8.0.0-next-8.27
+
+## 8.0.0-next-8.26
+
+### Patch Changes
+
+- @verdaccio/config@8.0.0-next-8.26
+- @verdaccio/core@8.0.0-next-8.26
+
+## 8.0.0-next-8.25
+
+### Patch Changes
+
+- 265c94a: fix(proxy): proxy protocol check
+- Updated dependencies [3aff890]
+- Updated dependencies [b24f513]
+  - @verdaccio/config@8.0.0-next-8.25
+  - @verdaccio/core@8.0.0-next-8.25
+
+## 8.0.0-next-8.24
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.24
+- @verdaccio/config@8.0.0-next-8.24
+
+## 8.0.0-next-8.23
+
+### Patch Changes
+
+- Updated dependencies [b671a38]
+  - @verdaccio/config@8.0.0-next-8.23
+  - @verdaccio/core@8.0.0-next-8.23
+
+## 8.0.0-next-8.22
+
+### Patch Changes
+
+- f443f81: chore(deps): sync and pin dependencies
+- Updated dependencies [67e667b]
+- Updated dependencies [60ef8ff]
+- Updated dependencies [05f03b3]
+  - @verdaccio/core@8.0.0-next-8.22
+  - @verdaccio/config@8.0.0-next-8.22
+
+## 8.0.0-next-8.21
+
+### Patch Changes
+
+- Updated dependencies [f8a321f]
+  - @verdaccio/core@8.0.0-next-8.21
+  - @verdaccio/config@8.0.0-next-8.21
+
+## 8.0.0-next-8.20
+
+### Patch Changes
+
+- 08e1b21: chore(deps): built-in node imports
+- d92ba65: chore(proxy): update tests
+- Updated dependencies [08e1b21]
+- Updated dependencies [a1a73e9]
+- Updated dependencies [6a4d6dd]
+  - @verdaccio/config@8.0.0-next-8.20
+  - @verdaccio/core@8.0.0-next-8.20
+
+## 8.0.0-next-8.19
+
+### Patch Changes
+
+- 54b1906: chore(deps): node-api, proxy, search
+- Updated dependencies [9350431]
+  - @verdaccio/core@8.0.0-next-8.19
+  - @verdaccio/config@8.0.0-next-8.19
+
+## 8.0.0-next-8.18
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.18
+- @verdaccio/config@8.0.0-next-8.18
+
+## 8.0.0-next-8.17
+
+### Patch Changes
+
+- Updated dependencies [96d2f0f]
+  - @verdaccio/core@8.0.0-next-8.17
+  - @verdaccio/config@8.0.0-next-8.17
+
+## 8.0.0-next-8.16
+
+### Patch Changes
+
+- 72c3cbb: chore(utils): replace @verdaccio/utils dependency with core
+- Updated dependencies [72c3cbb]
+- Updated dependencies [9509b63]
+- Updated dependencies [626ae6a]
+- Updated dependencies [2fef671]
+- Updated dependencies [acb8a99]
+- Updated dependencies [b19ddca]
+  - @verdaccio/config@8.0.0-next-8.16
+  - @verdaccio/core@8.0.0-next-8.16
+
+## 8.0.0-next-8.15
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.15
+- @verdaccio/config@8.0.0-next-8.15
+- @verdaccio/utils@8.1.0-next-8.15
+
+## 8.0.0-next-8.14
+
+### Patch Changes
+
+- Updated dependencies [b9fea38]
+- Updated dependencies [bb478f2]
+  - @verdaccio/core@8.0.0-next-8.14
+  - @verdaccio/config@8.0.0-next-8.14
+  - @verdaccio/utils@8.1.0-next-8.14
+
+## 8.0.0-next-8.13
+
+### Patch Changes
+
+- b3fa5df: fix: uplink processing order
+- 2eb8cc2: fix: handling for uplink timeouts
+- e4a1539: chore: package.json maintenance
+- 0607e80: chore: update readme badges and license files
+- Updated dependencies [b3fa5df]
+- Updated dependencies [2eb8cc2]
+- Updated dependencies [e4a1539]
+- Updated dependencies [0607e80]
+  - @verdaccio/config@8.0.0-next-8.13
+  - @verdaccio/utils@8.1.0-next-8.13
+  - @verdaccio/core@8.0.0-next-8.13
+
+## 8.0.0-next-8.12
+
+### Patch Changes
+
+- Updated dependencies [95ac124]
+  - @verdaccio/core@8.0.0-next-8.12
+  - @verdaccio/config@8.0.0-next-8.12
+  - @verdaccio/utils@8.1.0-next-8.12
+
+## 8.0.0-next-8.11
+
+### Patch Changes
+
+- 13e0fde: fix(proxy): validate protocol of proxy settings
+- Updated dependencies [85e0e13]
+  - @verdaccio/utils@8.1.0-next-8.11
+  - @verdaccio/config@8.0.0-next-8.11
+  - @verdaccio/core@8.0.0-next-8.11
+
+## 8.0.0-next-8.10
+
+### Patch Changes
+
+- Updated dependencies [bf0e09a]
+  - @verdaccio/config@8.0.0-next-8.10
+  - @verdaccio/core@8.0.0-next-8.10
+  - @verdaccio/utils@8.1.0-next-8.10
+
+## 8.0.0-next-8.9
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.9
+- @verdaccio/config@8.0.0-next-8.9
+- @verdaccio/utils@8.1.0-next-8.9
+
+## 8.0.0-next-8.8
+
+### Patch Changes
+
+- Updated dependencies [0588605]
+- Updated dependencies [ca91b9a]
+  - @verdaccio/config@8.0.0-next-8.8
+  - @verdaccio/core@8.0.0-next-8.8
+  - @verdaccio/utils@8.1.0-next-8.8
+
+## 8.0.0-next-8.7
+
+### Patch Changes
+
+- Updated dependencies [589ea7f]
+  - @verdaccio/core@8.0.0-next-8.7
+  - @verdaccio/utils@8.1.0-next-8.7
+  - @verdaccio/config@8.0.0-next-8.7
+
+## 8.0.0-next-8.6
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.6
+- @verdaccio/config@8.0.0-next-8.6
+- @verdaccio/utils@8.1.0-next-8.6
+
+## 8.0.0-next-8.5
+
+### Patch Changes
+
+- e308fbb: chore: move agent_options to config
+- Updated dependencies [ba71932]
+- Updated dependencies [64a7fc0]
+- Updated dependencies [4adaa83]
+- Updated dependencies [5cbee6f]
+- Updated dependencies [a049bba]
+  - @verdaccio/config@8.0.0-next-8.5
+  - @verdaccio/core@8.0.0-next-8.5
+  - @verdaccio/utils@8.1.0-next-8.5
+
+## 8.0.0-next-8.4
+
+### Patch Changes
+
+- 58e0d95: fix(middleware): error 404 when getting scoped tarballs
+- Updated dependencies [48aa89f]
+- Updated dependencies [58e0d95]
+  - @verdaccio/core@8.0.0-next-8.4
+  - @verdaccio/config@8.0.0-next-8.4
+  - @verdaccio/utils@8.1.0-next-8.4
+
+## 8.0.0-next-8.3
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.3
+- @verdaccio/config@8.0.0-next-8.3
+- @verdaccio/utils@8.1.0-next-8.3
+
+## 8.0.0-next-8.2
+
+### Minor Changes
+
+- 6a8154c: feat: update logger pino to latest
+
+### Patch Changes
+
+- Updated dependencies [6a8154c]
+  - @verdaccio/config@8.0.0-next-8.2
+  - @verdaccio/core@8.0.0-next-8.2
+  - @verdaccio/utils@7.1.0-next-8.2
+
+## 8.0.0-next-8.1
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.1
+- @verdaccio/config@8.0.0-next-8.1
+- @verdaccio/utils@7.0.1-next-8.1
+
+## 8.0.0-next-8.0
+
+### Major Changes
+
+- chore: move v7 next to v8 next
+
+### Patch Changes
+
+- Updated dependencies
+  - @verdaccio/core@8.0.0-next-8.0
+  - @verdaccio/config@8.0.0-next-8.0
+  - @verdaccio/utils@7.0.1-next-8.0
+
+## 7.0.0
+
+### Major Changes
+
+- 47f61c6: feat!: bump to v7
+- e7ebccb: update major dependencies, remove old nodejs support
+
+### Patch Changes
+
+- Updated dependencies [47f61c6]
+- Updated dependencies [10dd81f]
+- Updated dependencies [6e764e3]
+- Updated dependencies [8c10a3e]
+- Updated dependencies [daceb6d]
+- Updated dependencies [e7ebccb]
+- Updated dependencies [c9962fe]
+- Updated dependencies [f047cc8]
+- Updated dependencies [a99a4bb]
+- Updated dependencies [a05a7d8]
+- Updated dependencies [7c9f3cf]
+- Updated dependencies [c31aec8]
+- Updated dependencies [bd8703e]
+- Updated dependencies [4d96324]
+  - @verdaccio/config@7.0.0
+  - @verdaccio/core@7.0.0
+  - @verdaccio/utils@7.0.0
+
+## 7.0.0-next-8.21
+
+### Patch Changes
+
+- Updated dependencies [8c10a3e]
+- Updated dependencies [a05a7d8]
+- Updated dependencies [7c9f3cf]
+  - @verdaccio/config@7.0.0-next-8.21
+  - @verdaccio/core@7.0.0-next-8.21
+  - @verdaccio/utils@7.0.0-next-8.21
+
+## 7.0.0-next-7.20
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next-7.20
+- @verdaccio/config@7.0.0-next-7.20
+- @verdaccio/utils@7.0.0-next-7.20
+
+## 7.0.0-next-7.19
+
+### Patch Changes
+
+- Updated dependencies [c31aec8]
+  - @verdaccio/config@7.0.0-next-7.19
+  - @verdaccio/core@7.0.0-next-7.19
+  - @verdaccio/utils@7.0.0-next-7.19
+
+## 7.0.0-next-7.18
+
+### Patch Changes
+
+- Updated dependencies [10dd81f]
+  - @verdaccio/config@7.0.0-next-7.18
+  - @verdaccio/core@7.0.0-next-7.18
+  - @verdaccio/utils@7.0.0-next-7.18
+
+## 7.0.0-next-7.17
+
+### Patch Changes
+
+- Updated dependencies [6e764e3]
+  - @verdaccio/config@7.0.0-next-7.17
+  - @verdaccio/core@7.0.0-next-7.17
+  - @verdaccio/utils@7.0.0-next-7.17
+
+## 7.0.0-next-7.16
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next-7.16
+- @verdaccio/config@7.0.0-next-7.16
+- @verdaccio/utils@7.0.0-next-7.16
+
+## 7.0.0-next-7.15
+
+### Patch Changes
+
+- Updated dependencies [bd8703e]
+  - @verdaccio/core@7.0.0-next-7.15
+  - @verdaccio/config@7.0.0-next-7.15
+  - @verdaccio/utils@7.0.0-next-7.15
+
+## 7.0.0-next-7.14
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next-7.14
+- @verdaccio/config@7.0.0-next-7.14
+- @verdaccio/utils@7.0.0-next-7.14
+
+## 7.0.0-next-7.13
+
+### Patch Changes
+
+- Updated dependencies [a99a4bb]
+  - @verdaccio/config@7.0.0-next-7.13
+  - @verdaccio/core@7.0.0-next-7.13
+  - @verdaccio/utils@7.0.0-next-7.13
+
+## 7.0.0-next-7.12
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next-7.12
+- @verdaccio/config@7.0.0-next-7.12
+- @verdaccio/utils@7.0.0-next-7.12
+
+## 7.0.0-next-7.11
+
+### Patch Changes
+
+- Updated dependencies [c9962fe]
+  - @verdaccio/config@7.0.0-next-7.11
+  - @verdaccio/core@7.0.0-next-7.11
+  - @verdaccio/utils@7.0.0-next-7.11
+
+## 7.0.0-next-7.10
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next-7.10
+- @verdaccio/config@7.0.0-next-7.10
+- @verdaccio/utils@7.0.0-next-7.10
+
+## 7.0.0-next-7.9
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next-7.9
+- @verdaccio/config@7.0.0-next-7.9
+- @verdaccio/utils@7.0.0-next-7.9
+
+## 7.0.0-next-7.8
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next-7.8
+- @verdaccio/config@7.0.0-next-7.8
+- @verdaccio/utils@7.0.0-next-7.8
+
+## 7.0.0-next-7.7
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next-7.7
+- @verdaccio/config@7.0.0-next-7.7
+- @verdaccio/utils@7.0.0-next-7.7
+
+## 7.0.0-next.6
+
+### Patch Changes
+
+- Updated dependencies [4d96324]
+  - @verdaccio/config@7.0.0-next.6
+  - @verdaccio/core@7.0.0-next.6
+  - @verdaccio/utils@7.0.0-next.6
+
+## 7.0.0-next.5
+
+### Patch Changes
+
+- Updated dependencies [f047cc8]
+  - @verdaccio/core@7.0.0-next.5
+  - @verdaccio/config@7.0.0-next.5
+  - @verdaccio/utils@7.0.0-next.5
+
+## 7.0.0-next.4
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next.4
+- @verdaccio/config@7.0.0-next.4
+- @verdaccio/utils@7.0.0-next.4
+
+## 7.0.0-next.3
+
+### Major Changes
+
+- e7ebccb61: update major dependencies, remove old nodejs support
+
+### Patch Changes
+
+- Updated dependencies [daceb6d87]
+- Updated dependencies [e7ebccb61]
+  - @verdaccio/config@7.0.0-next.3
+  - @verdaccio/core@7.0.0-next.3
+  - @verdaccio/utils@7.0.0-next.3
+
+## 7.0.0-next.2
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next.2
+- @verdaccio/config@7.0.0-next.2
+- @verdaccio/utils@7.0.0-next.2
+
+## 7.0.0-next.1
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next.1
+- @verdaccio/config@7.0.0-next.1
+- @verdaccio/utils@7.0.0-next.1
+
+## 7.0.0-next.0
+
+### Major Changes
+
+- feat!: bump to v7
+
+### Patch Changes
+
+- Updated dependencies
+  - @verdaccio/config@7.0.0-next.0
+  - @verdaccio/core@7.0.0-next.0
+  - @verdaccio/utils@7.0.0-next.0
+
+## 6.0.0
+
+### Major Changes
+
+- 292c0a37f: feat!: replace deprecated request dependency by got
+
+  This is a big refactoring of the core, fetching dependencies, improve code, more tests and better stability. This is essential for the next release, will take some time but would allow modularize more the core.
+
+  ## Notes
+
+  - Remove deprecated `request` by other `got`, retry improved, custom Agent ( got does not include it built-in)
+  - Remove `async` dependency from storage (used by core) it was linked with proxy somehow safe to remove now
+  - Refactor with promises instead callback wherever is possible
+  - ~Document the API~
+  - Improve testing, integration tests
+  - Bugfix
+  - Clean up old validations
+  - Improve performance
+
+  ## 💥 Breaking changes
+
+  - Plugin API methods were callbacks based are returning promises, this will break current storage plugins, check documentation for upgrade.
+  - Write Tarball, Read Tarball methods parameters change, a new set of options like `AbortController` signals are being provided to the `addAbortSignal` can be internally used with Streams when a request is aborted. eg: `addAbortSignal(signal, fs.createReadStream(pathName));`
+  - `@verdaccio/streams` stream abort support is legacy is being deprecated removed
+  - Remove AWS and Google Cloud packages for future refactoring [#2574](https://github.com/verdaccio/verdaccio/pull/2574).
+
+- 459b6fa72: refactor: search v1 endpoint and local-database
+
+  - refactor search `api v1` endpoint, improve performance
+  - remove usage of `async` dependency https://github.com/verdaccio/verdaccio/issues/1225
+  - refactor method storage class
+  - create new module `core` to reduce the ammount of modules with utilities
+  - use `undici` instead `node-fetch`
+  - use `fastify` instead `express` for functional test
+
+  ### Breaking changes
+
+  - plugin storage API changes
+  - remove old search endpoint (return 404)
+  - filter local private packages at plugin level
+
+  The storage api changes for methods `get`, `add`, `remove` as promise base. The `search` methods also changes and recieves a `query` object that contains all query params from the client.
+
+  ```ts
+  export interface IPluginStorage<T> extends IPlugin {
+    add(name: string): Promise<void>;
+    remove(name: string): Promise<void>;
+    get(): Promise<any>;
+    init(): Promise<void>;
+    getSecret(): Promise<string>;
+    setSecret(secret: string): Promise<any>;
+    getPackageStorage(packageInfo: string): IPackageStorage;
+    search(query: searchUtils.SearchQuery): Promise<searchUtils.SearchItem[]>;
+    saveToken(token: Token): Promise<any>;
+    deleteToken(user: string, tokenKey: string): Promise<any>;
+    readTokens(filter: TokenFilter): Promise<Token[]>;
+  }
+  ```
+
+- 10aeb4f13: feat!: experiments config renamed to flags
+
+  - The `experiments` configuration is renamed to `flags`. The functionality is exactly the same.
+
+  ```js
+  flags: token: false;
+  search: false;
+  ```
+
+  - The `self_path` property from the config file is being removed in favor of `config_file` full path.
+  - Refactor `config` module, better types and utilities
+
+- e367c3f1e: - Replace signature handler for legacy tokens by removing deprecated crypto.createDecipher by createCipheriv
+
+  - Introduce environment variables for legacy tokens
+
+  ### Code Improvements
+
+  - Add debug library for improve developer experience
+
+  ### Breaking change
+
+  - The new signature invalidates all previous tokens generated by Verdaccio 4 or previous versions.
+  - The secret key must have 32 characters long.
+
+  ### New environment variables
+
+  - `VERDACCIO_LEGACY_ALGORITHM`: Allows to define the specific algorithm for the token signature which by default is `aes-256-ctr`
+  - `VERDACCIO_LEGACY_ENCRYPTION_KEY`: By default, the token stores in the database, but using this variable allows to get it from memory
+
+- 82cb0f2bf: feat!: config.logs throw an error, logging config not longer accept array or logs property
+
+  ### 💥 Breaking change
+
+  This is valid
+
+  ```yaml
+  log: { type: stdout, format: pretty, level: http }
+  ```
+
+  This is invalid
+
+  ```yaml
+  logs: { type: stdout, format: pretty, level: http }
+  ```
+
+  or
+
+  ```yaml
+  logs:
+    - [{ type: stdout, format: pretty, level: http }]
+  ```
+
+### Minor Changes
+
+- 631abe1ac: feat: refactor logger
+- b702ea363: abort search request support for proxy
+- b61f762d6: feat: add server rate limit protection to all request
+
+  To modify custom values, use the server settings property.
+
+  ```markdown
+  server:
+
+  ## https://www.npmjs.com/package/express-rate-limit#configuration-options
+
+  rateLimit:
+  windowMs: 1000
+  max: 10000
+  ```
+
+  The values are intended to be high, if you want to improve security of your server consider
+  using different values.
+
+- 154b2ecd3: refactor: remove @verdaccio/commons-api in favor @verdaccio/core and remove duplications
+- aa763baec: feat: add typescript project references settings
+
+  Reading https://ebaytech.berlin/optimizing-multi-package-apps-with-typescript-project-references-d5c57a3b4440 I realized I can use project references to solve the issue to pre-compile modules on develop mode.
+
+  It allows to navigate (IDE) trough the packages without need compile the packages.
+
+  Add two `tsconfig`, one using the previous existing configuration that is able to produce declaration files (`tsconfig.build`) and a new one `tsconfig` which is enables [_projects references_](https://www.typescriptlang.org/docs/handbook/project-references.html).
+
+- 0a6412ca9: feat: refactor proxy with got v12
+- 5167bb528: feat: ui search support for remote, local and private packages
+
+  The command `npm search` search globally and return all matches, with this improvement the user interface
+  is powered with the same capabilities.
+
+  The UI also tag where is the origin the package with a tag, also provide the latest version and description of the package.
+
+- 45c03819e: refactor: render html middleware
+
+### Patch Changes
+
+- 351aeeaa8: fix(deps): @verdaccio/utils should be a prod dep of local-storage
+- a610ef26b: chore: add release step to private regisry on merge changeset pr
+- 65cb26cf3: refactor: migrate request to node-fetch at hooks package
+- e381e4845: fix: improve legacy nodejs support
+- 34f0f1101: Enable prerelease mode with **changesets**
+- 0a6412ca9: refactor: got instead undici
+- 68ea21214: ESLint Warnings Fixed
+
+  Related to issue #1461
+
+  - max-len: most of the sensible max-len errors are fixed
+  - no-unused-vars: most of these types of errors are fixed by deleting not needed declarations
+  - @typescript-eslint/no-unused-vars: same as above
+
+- Updated dependencies [292c0a37f]
+- Updated dependencies [a1986e098]
+- Updated dependencies [974cd8c19]
+- Updated dependencies [a828271d6]
+- Updated dependencies [ef88da3b4]
+- Updated dependencies [43f32687c]
+- Updated dependencies [679c19c1b]
+- Updated dependencies [a3a209b5e]
+- Updated dependencies [459b6fa72]
+- Updated dependencies [9fc2e7961]
+- Updated dependencies [24b9be020]
+- Updated dependencies [794af76c5]
+- Updated dependencies [351aeeaa8]
+- Updated dependencies [10aeb4f13]
+- Updated dependencies [9718e0330]
+- Updated dependencies [1b217fd34]
+- Updated dependencies [e367c3f1e]
+- Updated dependencies [a1da11308]
+- Updated dependencies [d167f92e1]
+- Updated dependencies [d2c65da9c]
+- Updated dependencies [00d1d2a17]
+- Updated dependencies [1810ed0d8]
+- Updated dependencies [a610ef26b]
+- Updated dependencies [ddb6a2239]
+- Updated dependencies [648575aa4]
+- Updated dependencies [b61f762d6]
+- Updated dependencies [d43894e8f]
+- Updated dependencies [154b2ecd3]
+- Updated dependencies [aa763baec]
+- Updated dependencies [378e907d5]
+- Updated dependencies [16e38df8a]
+- Updated dependencies [34f0f1101]
+- Updated dependencies [82cb0f2bf]
+- Updated dependencies [dc571aabd]
+- Updated dependencies [f859d2b1a]
+- Updated dependencies [6c1eb021b]
+- Updated dependencies [62c24b632]
+- Updated dependencies [0a6412ca9]
+- Updated dependencies [d08fe29d9]
+- Updated dependencies [5167bb528]
+- Updated dependencies [f86c31ed0]
+- Updated dependencies [c9d1af0e5]
+- Updated dependencies [4b29d715b]
+- Updated dependencies [b13a3fefd]
+- Updated dependencies [68ea21214]
+- Updated dependencies [8f43bf17d]
+- Updated dependencies [45c03819e]
+- Updated dependencies [b849128de]
+  - @verdaccio/config@6.0.0
+  - @verdaccio/core@6.0.0
+  - @verdaccio/utils@6.0.0
+
+## 6.0.0-6-next.54
+
+### Patch Changes
+
+- e381e4845: fix: improve legacy nodejs support
+  - @verdaccio/core@6.0.0-6-next.76
+  - @verdaccio/config@6.0.0-6-next.76
+  - @verdaccio/utils@6.0.0-6-next.44
+
+## 6.0.0-6-next.53
+
+### Minor Changes
+
+- 0a6412ca9: feat: refactor proxy with got v12
+
+### Patch Changes
+
+- 0a6412ca9: refactor: got instead undici
+- Updated dependencies [0a6412ca9]
+  - @verdaccio/core@6.0.0-6-next.75
+  - @verdaccio/config@6.0.0-6-next.75
+  - @verdaccio/utils@6.0.0-6-next.43
+
+## 6.0.0-6-next.52
+
+### Patch Changes
+
+- @verdaccio/core@6.0.0-6-next.74
+- @verdaccio/config@6.0.0-6-next.74
+- @verdaccio/local-storage@11.0.0-6-next.44
+- @verdaccio/utils@6.0.0-6-next.42
+- @verdaccio/logger@6.0.0-6-next.42
+
+## 6.0.0-6-next.51
+
+### Patch Changes
+
+- Updated dependencies [f859d2b1a]
+  - @verdaccio/core@6.0.0-6-next.73
+  - @verdaccio/config@6.0.0-6-next.73
+  - @verdaccio/local-storage@11.0.0-6-next.43
+  - @verdaccio/utils@6.0.0-6-next.41
+  - @verdaccio/logger@6.0.0-6-next.41
+
+## 6.0.0-6-next.50
+
+### Patch Changes
+
+- @verdaccio/core@6.0.0-6-next.72
+- @verdaccio/config@6.0.0-6-next.72
+- @verdaccio/local-storage@11.0.0-6-next.42
+- @verdaccio/utils@6.0.0-6-next.40
+- @verdaccio/logger@6.0.0-6-next.40
+
+## 6.0.0-6-next.49
+
+### Patch Changes
+
+- Updated dependencies [679c19c1b]
+  - @verdaccio/config@6.0.0-6-next.71
+  - @verdaccio/local-storage@11.0.0-6-next.41
+  - @verdaccio/logger@6.0.0-6-next.39
+  - @verdaccio/core@6.0.0-6-next.71
+  - @verdaccio/utils@6.0.0-6-next.39
+
+## 6.0.0-6-next.48
+
+### Patch Changes
+
+- @verdaccio/logger@6.0.0-6-next.38
+- @verdaccio/local-storage@11.0.0-6-next.40
+- @verdaccio/core@6.0.0-6-next.70
+- @verdaccio/config@6.0.0-6-next.70
+- @verdaccio/utils@6.0.0-6-next.38
+
+## 6.0.0-6-next.47
+
+### Patch Changes
+
+- Updated dependencies [c9d1af0e]
+  - @verdaccio/core@6.0.0-6-next.69
+  - @verdaccio/config@6.0.0-6-next.69
+  - @verdaccio/local-storage@11.0.0-6-next.39
+  - @verdaccio/utils@6.0.0-6-next.37
+  - @verdaccio/logger@6.0.0-6-next.37
+
+## 6.0.0-6-next.46
+
+### Patch Changes
+
+- @verdaccio/core@6.0.0-6-next.68
+- @verdaccio/config@6.0.0-6-next.68
+- @verdaccio/local-storage@11.0.0-6-next.38
+- @verdaccio/utils@6.0.0-6-next.36
+- @verdaccio/logger@6.0.0-6-next.36
+
+## 6.0.0-6-next.45
+
+### Patch Changes
+
+- Updated dependencies [16e38df8]
+  - @verdaccio/config@6.0.0-6-next.67
+  - @verdaccio/core@6.0.0-6-next.67
+  - @verdaccio/local-storage@11.0.0-6-next.37
+  - @verdaccio/utils@6.0.0-6-next.35
+  - @verdaccio/logger@6.0.0-6-next.35
+
+## 6.0.0-6-next.44
+
+### Patch Changes
+
+- @verdaccio/core@6.0.0-6-next.66
+- @verdaccio/logger@6.0.0-6-next.34
+- @verdaccio/local-storage@11.0.0-6-next.36
+- @verdaccio/config@6.0.0-6-next.66
+- @verdaccio/utils@6.0.0-6-next.34
+
+## 6.0.0-6-next.43
+
+### Patch Changes
+
+- Updated dependencies [a1da1130]
+  - @verdaccio/core@6.0.0-6-next.65
+  - @verdaccio/config@6.0.0-6-next.65
+  - @verdaccio/local-storage@11.0.0-6-next.35
+  - @verdaccio/utils@6.0.0-6-next.33
+  - @verdaccio/logger@6.0.0-6-next.33
+
+## 6.0.0-6-next.42
+
+### Patch Changes
+
+- Updated dependencies [974cd8c1]
+  - @verdaccio/core@6.0.0-6-next.64
+  - @verdaccio/config@6.0.0-6-next.64
+  - @verdaccio/local-storage@11.0.0-6-next.34
+  - @verdaccio/utils@6.0.0-6-next.32
+  - @verdaccio/logger@6.0.0-6-next.32
+
+## 6.0.0-6-next.41
+
+### Patch Changes
+
+- Updated dependencies [ddb6a223]
+- Updated dependencies [dc571aab]
+  - @verdaccio/config@6.0.0-6-next.63
+  - @verdaccio/core@6.0.0-6-next.63
+  - @verdaccio/local-storage@11.0.0-6-next.33
+  - @verdaccio/utils@6.0.0-6-next.31
+  - @verdaccio/logger@6.0.0-6-next.31
+
+## 6.0.0-6-next.40
+
+### Patch Changes
+
+- Updated dependencies [378e907d]
+  - @verdaccio/core@6.0.0-6-next.62
+  - @verdaccio/logger@6.0.0-6-next.30
+  - @verdaccio/local-storage@11.0.0-6-next.32
+  - @verdaccio/config@6.0.0-6-next.62
+  - @verdaccio/utils@6.0.0-6-next.30
+
+## 6.0.0-6-next.39
+
+### Patch Changes
+
+- Updated dependencies [d167f92e]
+  - @verdaccio/config@6.0.0-6-next.61
+  - @verdaccio/local-storage@11.0.0-6-next.31
+  - @verdaccio/core@6.0.0-6-next.61
+  - @verdaccio/utils@6.0.0-6-next.29
+  - @verdaccio/logger@6.0.0-6-next.29
+
+## 6.0.0-6-next.38
+
+### Minor Changes
+
+- 45c03819: refactor: render html middleware
+
+### Patch Changes
+
+- Updated dependencies [45c03819]
+  - @verdaccio/config@6.0.0-6-next.60
+  - @verdaccio/local-storage@11.0.0-6-next.30
+  - @verdaccio/core@6.0.0-6-next.60
+  - @verdaccio/logger@6.0.0-6-next.28
+  - @verdaccio/utils@6.0.0-6-next.28
+
+## 6.0.0-6-next.37
+
+### Patch Changes
+
+- Updated dependencies [65f88b82]
+  - @verdaccio/logger@6.0.0-6-next.27
+  - @verdaccio/local-storage@11.0.0-6-next.29
+  - @verdaccio/core@6.0.0-6-next.59
+  - @verdaccio/config@6.0.0-6-next.59
+  - @verdaccio/utils@6.0.0-6-next.27
+
+## 6.0.0-6-next.36
+
+### Patch Changes
+
+- @verdaccio/core@6.0.0-6-next.58
+- @verdaccio/config@6.0.0-6-next.58
+- @verdaccio/local-storage@11.0.0-6-next.28
+- @verdaccio/utils@6.0.0-6-next.26
+- @verdaccio/logger@6.0.0-6-next.26
+
+## 6.0.0-6-next.35
+
+### Patch Changes
+
+- @verdaccio/local-storage@11.0.0-6-next.27
+- @verdaccio/core@6.0.0-6-next.57
+- @verdaccio/config@6.0.0-6-next.57
+- @verdaccio/logger@6.0.0-6-next.25
+- @verdaccio/utils@6.0.0-6-next.25
+
+## 6.0.0-6-next.34
+
+### Patch Changes
+
+- Updated dependencies [a1986e09]
+  - @verdaccio/utils@6.0.0-6-next.24
+  - @verdaccio/config@6.0.0-6-next.56
+  - @verdaccio/local-storage@11.0.0-6-next.26
+  - @verdaccio/core@6.0.0-6-next.56
+  - @verdaccio/logger@6.0.0-6-next.24
+
+## 6.0.0-6-next.33
+
+### Patch Changes
+
+- Updated dependencies [9718e033]
+  - @verdaccio/config@6.0.0-6-next.55
+  - @verdaccio/core@6.0.0-6-next.55
+  - @verdaccio/utils@6.0.0-6-next.23
+  - @verdaccio/local-storage@11.0.0-6-next.25
+  - @verdaccio/logger@6.0.0-6-next.23
+
+## 6.0.0-6-next.32
+
+### Patch Changes
+
+- Updated dependencies [ef88da3b]
+  - @verdaccio/config@6.0.0-6-next.54
+  - @verdaccio/core@6.0.0-6-next.54
+  - @verdaccio/logger@6.0.0-6-next.22
+  - @verdaccio/local-storage@11.0.0-6-next.24
+  - @verdaccio/utils@6.0.0-6-next.22
+
+## 6.0.0-6-next.31
+
+### Patch Changes
+
+- @verdaccio/core@6.0.0-6-next.53
+- @verdaccio/logger@6.0.0-6-next.21
+- @verdaccio/local-storage@11.0.0-6-next.23
+- @verdaccio/config@6.0.0-6-next.53
+- @verdaccio/utils@6.0.0-6-next.21
+
+## 6.0.0-6-next.30
+
+### Patch Changes
+
+- @verdaccio/core@6.0.0-6-next.52
+- @verdaccio/config@6.0.0-6-next.52
+- @verdaccio/logger@6.0.0-6-next.20
+- @verdaccio/local-storage@11.0.0-6-next.22
+- @verdaccio/utils@6.0.0-6-next.20
+
+## 6.0.0-6-next.29
+
+### Patch Changes
+
+- Updated dependencies [4b29d715]
+  - @verdaccio/config@6.0.0-6-next.51
+  - @verdaccio/core@6.0.0-6-next.51
+  - @verdaccio/local-storage@11.0.0-6-next.21
+  - @verdaccio/logger@6.0.0-6-next.19
+  - @verdaccio/utils@6.0.0-6-next.19
+
+## 6.0.0-6-next.28
+
+### Patch Changes
+
+- @verdaccio/core@6.0.0-6-next.50
+- @verdaccio/config@6.0.0-6-next.50
+- @verdaccio/logger@6.0.0-6-next.18
+- @verdaccio/local-storage@11.0.0-6-next.20
+- @verdaccio/utils@6.0.0-6-next.18
+
+## 6.0.0-6-next.27
+
+### Patch Changes
+
+- @verdaccio/local-storage@11.0.0-6-next.19
+- @verdaccio/core@6.0.0-6-next.49
+- @verdaccio/config@6.0.0-6-next.49
+- @verdaccio/logger@6.0.0-6-next.17
+- @verdaccio/utils@6.0.0-6-next.17
+
+## 6.0.0-6-next.26
+
+### Patch Changes
+
+- Updated dependencies [43f32687]
+- Updated dependencies [9fc2e796]
+- Updated dependencies [62c24b63]
+  - @verdaccio/core@6.0.0-6-next.48
+  - @verdaccio/config@6.0.0-6-next.48
+  - @verdaccio/local-storage@11.0.0-6-next.18
+  - @verdaccio/utils@6.0.0-6-next.16
+  - @verdaccio/logger@6.0.0-6-next.16
+
+## 6.0.0-6-next.25
+
+### Patch Changes
+
+- @verdaccio/core@6.0.0-6-next.47
+- @verdaccio/config@6.0.0-6-next.47
+- @verdaccio/logger@6.0.0-6-next.15
+- @verdaccio/local-storage@11.0.0-6-next.17
+- @verdaccio/utils@6.0.0-6-next.15
+
+## 6.0.0-6-next.24
+
+### Patch Changes
+
+- Updated dependencies [b849128d]
+  - @verdaccio/core@6.0.0-6-next.8
+  - @verdaccio/config@6.0.0-6-next.17
+  - @verdaccio/logger@6.0.0-6-next.14
+  - @verdaccio/local-storage@11.0.0-6-next.16
+  - @verdaccio/utils@6.0.0-6-next.14
+
+## 6.0.0-6-next.23
+
+### Patch Changes
+
+- 351aeeaa: fix(deps): @verdaccio/utils should be a prod dep of local-storage
+- Updated dependencies [351aeeaa]
+  - @verdaccio/core@6.0.0-6-next.7
+  - @verdaccio/logger@6.0.0-6-next.13
+  - @verdaccio/local-storage@11.0.0-6-next.15
+  - @verdaccio/config@6.0.0-6-next.16
+  - @verdaccio/utils@6.0.0-6-next.13
+
+## 6.0.0-6-next.22
+
+### Patch Changes
+
+- Updated dependencies [37274e4c]
+  - @verdaccio/local-storage@11.0.0-6-next.14
+  - @verdaccio/core@6.0.0-6-next.6
+  - @verdaccio/logger@6.0.0-6-next.12
+
+## 6.0.0-6-next.21
+
+### Major Changes
+
+- 292c0a37: feat!: replace deprecated request dependency by got
+
+  This is a big refactoring of the core, fetching dependencies, improve code, more tests and better stability. This is essential for the next release, will take some time but would allow modularize more the core.
+
+  ## Notes
+
+  - Remove deprecated `request` by other `got`, retry improved, custom Agent ( got does not include it built-in)
+  - Remove `async` dependency from storage (used by core) it was linked with proxy somehow safe to remove now
+  - Refactor with promises instead callback wherever is possible
+  - ~Document the API~
+  - Improve testing, integration tests
+  - Bugfix
+  - Clean up old validations
+  - Improve performance
+
+  ## 💥 Breaking changes
+
+  - Plugin API methods were callbacks based are returning promises, this will break current storage plugins, check documentation for upgrade.
+  - Write Tarball, Read Tarball methods parameters change, a new set of options like `AbortController` signals are being provided to the `addAbortSignal` can be internally used with Streams when a request is aborted. eg: `addAbortSignal(signal, fs.createReadStream(pathName));`
+  - `@verdaccio/streams` stream abort support is legacy is being deprecated removed
+  - Remove AWS and Google Cloud packages for future refactoring [#2574](https://github.com/verdaccio/verdaccio/pull/2574).
+
+### Patch Changes
+
+- Updated dependencies [292c0a37]
+- Updated dependencies [a3a209b5]
+- Updated dependencies [00d1d2a1]
+  - @verdaccio/config@6.0.0-6-next.15
+  - @verdaccio/core@6.0.0-6-next.6
+  - @verdaccio/logger@6.0.0-6-next.12
+  - @verdaccio/local-storage@11.0.0-6-next.13
+  - @verdaccio/utils@6.0.0-6-next.12
+
+## 6.0.0-6-next.20
+
+### Patch Changes
+
+- Updated dependencies [d43894e8]
+- Updated dependencies [d08fe29d]
+  - @verdaccio/config@6.0.0-6-next.14
+  - @verdaccio/local-storage@11.0.0-6-next.12
+  - @verdaccio/core@6.0.0-6-next.5
+  - @verdaccio/streams@11.0.0-6-next.5
+  - @verdaccio/logger@6.0.0-6-next.11
+
+## 6.0.0-6-next.19
+
+### Major Changes
+
+- 82cb0f2b: feat!: config.logs throw an error, logging config not longer accept array or logs property
+
+  ### 💥 Breaking change
+
+  This is valid
+
+  ```yaml
+  log: { type: stdout, format: pretty, level: http }
+  ```
+
+  This is invalid
+
+  ```yaml
+  logs: { type: stdout, format: pretty, level: http }
+  ```
+
+  or
+
+  ```yaml
+  logs:
+    - [{ type: stdout, format: pretty, level: http }]
+  ```
+
+### Minor Changes
+
+- 5167bb52: feat: ui search support for remote, local and private packages
+
+  The command `npm search` search globally and return all matches, with this improvement the user interface
+  is powered with the same capabilities.
+
+  The UI also tag where is the origin the package with a tag, also provide the latest version and description of the package.
+
+### Patch Changes
+
+- Updated dependencies [82cb0f2b]
+- Updated dependencies [5167bb52]
+  - @verdaccio/config@6.0.0-6-next.13
+  - @verdaccio/core@6.0.0-6-next.5
+  - @verdaccio/logger@6.0.0-6-next.11
+  - @verdaccio/local-storage@11.0.0-6-next.12
+  - @verdaccio/utils@6.0.0-6-next.11
+  - @verdaccio/streams@11.0.0-6-next.5
+
+## 6.0.0-6-next.18
+
+### Patch Changes
+
+- Updated dependencies [b78f3525]
+  - @verdaccio/logger@6.0.0-6-next.10
+
+## 6.0.0-6-next.17
+
+### Patch Changes
+
+- Updated dependencies [730b5d8c]
+  - @verdaccio/logger@6.0.0-6-next.9
+
+## 6.0.0-6-next.16
+
+### Patch Changes
+
+- Updated dependencies [a828271d]
+- Updated dependencies [24b9be02]
+- Updated dependencies [e75c0a3b]
+- Updated dependencies [b13a3fef]
+  - @verdaccio/local-storage@11.0.0-6-next.11
+  - @verdaccio/utils@6.0.0-6-next.10
+  - @verdaccio/core@6.0.0-6-next.4
+  - @verdaccio/logger@6.0.0-6-next.8
+  - @verdaccio/config@6.0.0-6-next.12
+  - @verdaccio/streams@11.0.0-6-next.5
+
+## 6.0.0-6-next.15
+
+### Patch Changes
+
+- Updated dependencies [f86c31ed]
+  - @verdaccio/utils@6.0.0-6-next.9
+  - @verdaccio/config@6.0.0-6-next.11
+  - @verdaccio/local-storage@11.0.0-6-next.10
+
+## 6.0.0-6-next.14
+
+### Patch Changes
+
+- Updated dependencies [6c1eb021]
+  - @verdaccio/core@6.0.0-6-next.3
+  - @verdaccio/logger@6.0.0-6-next.7
+  - @verdaccio/config@6.0.0-6-next.10
+  - @verdaccio/local-storage@11.0.0-6-next.10
+  - @verdaccio/utils@6.0.0-6-next.8
+
+## 6.0.0-6-next.13
+
+### Minor Changes
+
+- b702ea36: abort search request support for proxy
+- 154b2ecd: refactor: remove @verdaccio/commons-api in favor @verdaccio/core and remove duplications
+
+### Patch Changes
+
+- Updated dependencies [794af76c]
+- Updated dependencies [154b2ecd]
+  - @verdaccio/config@6.0.0-6-next.9
+  - @verdaccio/core@6.0.0-6-next.2
+  - @verdaccio/streams@11.0.0-6-next.5
+  - @verdaccio/logger@6.0.0-6-next.6
+  - @verdaccio/utils@6.0.0-6-next.7
+  - @verdaccio/local-storage@11.0.0-6-next.9
+
+## 6.0.0-6-next.12
+
+### Patch Changes
+
+- Updated dependencies [2c594910]
+  - @verdaccio/logger@6.0.0-6-next.5
+
+## 6.0.0-6-next.11
+
+### Major Changes
+
+- 459b6fa7: refactor: search v1 endpoint and local-database
+
+  - refactor search `api v1` endpoint, improve performance
+  - remove usage of `async` dependency https://github.com/verdaccio/verdaccio/issues/1225
+  - refactor method storage class
+  - create new module `core` to reduce the ammount of modules with utilities
+  - use `undici` instead `node-fetch`
+  - use `fastify` instead `express` for functional test
+
+  ### Breaking changes
+
+  - plugin storage API changes
+  - remove old search endpoint (return 404)
+  - filter local private packages at plugin level
+
+  The storage api changes for methods `get`, `add`, `remove` as promise base. The `search` methods also changes and recieves a `query` object that contains all query params from the client.
+
+  ```ts
+  export interface IPluginStorage<T> extends IPlugin {
+    add(name: string): Promise<void>;
+    remove(name: string): Promise<void>;
+    get(): Promise<any>;
+    init(): Promise<void>;
+    getSecret(): Promise<string>;
+    setSecret(secret: string): Promise<any>;
+    getPackageStorage(packageInfo: string): IPackageStorage;
+    search(query: searchUtils.SearchQuery): Promise<searchUtils.SearchItem[]>;
+    saveToken(token: Token): Promise<any>;
+    deleteToken(user: string, tokenKey: string): Promise<any>;
+    readTokens(filter: TokenFilter): Promise<Token[]>;
+  }
+  ```
+
+### Patch Changes
+
+- Updated dependencies [459b6fa7]
+  - @verdaccio/config@6.0.0-6-next.8
+  - @verdaccio/commons-api@11.0.0-6-next.4
+  - @verdaccio/core@6.0.0-6-next.1
+  - @verdaccio/local-storage@11.0.0-6-next.8
+  - @verdaccio/streams@11.0.0-6-next.4
+  - @verdaccio/utils@6.0.0-6-next.6
+  - @verdaccio/logger@6.0.0-6-next.4
+
+## 6.0.0-6-next.10
+
+### Patch Changes
+
+- Updated dependencies [df0da3d6]
+  - @verdaccio/local-storage@11.0.0-6-next.7
+
+## 6.0.0-6-next.9
+
+### Patch Changes
+
+- Updated dependencies [d2c65da9]
+  - @verdaccio/utils@6.0.0-6-next.5
+  - @verdaccio/config@6.0.0-6-next.7
+
+## 6.0.0-6-next.8
+
+### Patch Changes
+
+- Updated dependencies [1b217fd3]
+  - @verdaccio/config@6.0.0-6-next.6
+  - @verdaccio/local-storage@11.0.0-6-next.6
+
+## 6.0.0-6-next.7
+
+### Patch Changes
+
+- Updated dependencies [1810ed0d]
+- Updated dependencies [648575aa]
+  - @verdaccio/config@6.0.0-6-next.5
+  - @verdaccio/utils@6.0.0-6-next.4
+
+## 6.0.0-6-next.6
+
+### Patch Changes
+
+- Updated dependencies [5c5057fc]
+  - @verdaccio/config@6.0.0-6-next.4
+  - @verdaccio/logger@6.0.0-6-next.4
+  - @verdaccio/local-storage@11.0.0-6-next.5
+  - @verdaccio/streams@11.0.0-alpha.3
+
+## 6.0.0-6-next.5
+
+### Patch Changes
+
+- Updated dependencies [cb2281a5]
+  - @verdaccio/local-storage@11.0.0-6-next.5
+
+## 5.0.0-alpha.4
+
+### Patch Changes
+
+- fecbb9be: chore: add release step to private regisry on merge changeset pr
+- Updated dependencies [fecbb9be]
+  - @verdaccio/local-storage@10.0.0-alpha.4
+  - @verdaccio/config@5.0.0-alpha.3
+  - @verdaccio/commons-api@10.0.0-alpha.3
+  - @verdaccio/streams@10.0.0-alpha.3
+  - @verdaccio/logger@5.0.0-alpha.3
+  - @verdaccio/utils@5.0.0-alpha.3
+
+## 5.0.0-alpha.3
+
+### Minor Changes
+
+- 54c58d1e: feat: add server rate limit protection to all request
+
+  To modify custom values, use the server settings property.
+
+  ```markdown
+  server:
+
+  ## https://www.npmjs.com/package/express-rate-limit#configuration-options
+
+  rateLimit:
+  windowMs: 1000
+  max: 10000
+  ```
+
+  The values are intended to be high, if you want to improve security of your server consider
+  using different values.
+
+### Patch Changes
+
+- Updated dependencies [54c58d1e]
+  - @verdaccio/config@5.0.0-alpha.2
+  - @verdaccio/commons-api@10.0.0-alpha.2
+  - @verdaccio/local-storage@10.0.0-alpha.3
+  - @verdaccio/streams@10.0.0-alpha.2
+  - @verdaccio/logger@5.0.0-alpha.2
+  - @verdaccio/utils@5.0.0-alpha.2
+
+## 5.0.0-alpha.2
+
+### Patch Changes
+
+- Updated dependencies [2a327c4b]
+  - @verdaccio/local-storage@10.0.0-alpha.2
+
+## 5.0.0-alpha.1
+
+### Major Changes
+
+- d87fa026: feat!: experiments config renamed to flags
+
+  - The `experiments` configuration is renamed to `flags`. The functionality is exactly the same.
+
+  ```js
+  flags: token: false;
+  search: false;
+  ```
+
+  - The `self_path` property from the config file is being removed in favor of `config_file` full path.
+  - Refactor `config` module, better types and utilities
+
+- da1ee9c8: - Replace signature handler for legacy tokens by removing deprecated crypto.createDecipher by createCipheriv
+
+  - Introduce environment variables for legacy tokens
+
+  ### Code Improvements
+
+  - Add debug library for improve developer experience
+
+  ### Breaking change
+
+  - The new signature invalidates all previous tokens generated by Verdaccio 4 or previous versions.
+  - The secret key must have 32 characters long.
+
+  ### New environment variables
+
+  - `VERDACCIO_LEGACY_ALGORITHM`: Allows to define the specific algorithm for the token signature which by default is `aes-256-ctr`
+  - `VERDACCIO_LEGACY_ENCRYPTION_KEY`: By default, the token stores in the database, but using this variable allows to get it from memory
+
+### Minor Changes
+
+- 26b494cb: feat: add typescript project references settings
+
+  Reading https://ebaytech.berlin/optimizing-multi-package-apps-with-typescript-project-references-d5c57a3b4440 I realized I can use project references to solve the issue to pre-compile modules on develop mode.
+
+  It allows to navigate (IDE) trough the packages without need compile the packages.
+
+  Add two `tsconfig`, one using the previous existing configuration that is able to produce declaration files (`tsconfig.build`) and a new one `tsconfig` which is enables [_projects references_](https://www.typescriptlang.org/docs/handbook/project-references.html).
+
+### Patch Changes
+
+- ae52ba35: refactor: migrate request to node-fetch at hooks package
+- b57b4338: Enable prerelease mode with **changesets**
+- 31af0164: ESLint Warnings Fixed
+
+  Related to issue #1461
+
+  - max-len: most of the sensible max-len errors are fixed
+  - no-unused-vars: most of these types of errors are fixed by deleting not needed declarations
+  - @typescript-eslint/no-unused-vars: same as above
+
+- Updated dependencies [d87fa026]
+- Updated dependencies [da1ee9c8]
+- Updated dependencies [26b494cb]
+- Updated dependencies [b57b4338]
+- Updated dependencies [add778d5]
+- Updated dependencies [31af0164]
+  - @verdaccio/config@5.0.0-alpha.1
+  - @verdaccio/commons-api@10.0.0-alpha.1
+  - @verdaccio/local-storage@10.0.0-alpha.1
+  - @verdaccio/streams@10.0.0-alpha.1
+  - @verdaccio/logger@5.0.0-alpha.1
+  - @verdaccio/utils@5.0.0-alpha.1
+
+## 5.0.0-alpha.1
+
+### Major Changes
+
+- d87fa0268: feat!: experiments config renamed to flags
+
+  - The `experiments` configuration is renamed to `flags`. The functionality is exactly the same.
+
+  ```js
+  flags: token: false;
+  search: false;
+  ```
+
+  - The `self_path` property from the config file is being removed in favor of `config_file` full path.
+  - Refactor `config` module, better types and utilities
+
+- da1ee9c82: - Replace signature handler for legacy tokens by removing deprecated crypto.createDecipher by createCipheriv
+
+  - Introduce environment variables for legacy tokens
+
+  ### Code Improvements
+
+  - Add debug library for improve developer experience
+
+  ### Breaking change
+
+  - The new signature invalidates all previous tokens generated by Verdaccio 4 or previous versions.
+  - The secret key must have 32 characters long.
+
+  ### New environment variables
+
+  - `VERDACCIO_LEGACY_ALGORITHM`: Allows to define the specific algorithm for the token signature which by default is `aes-256-ctr`
+  - `VERDACCIO_LEGACY_ENCRYPTION_KEY`: By default, the token stores in the database, but using this variable allows to get it from memory
+
+### Minor Changes
+
+- 26b494cbd: feat: add typescript project references settings
+
+  Reading https://ebaytech.berlin/optimizing-multi-package-apps-with-typescript-project-references-d5c57a3b4440 I realized I can use project references to solve the issue to pre-compile modules on develop mode.
+
+  It allows to navigate (IDE) trough the packages without need compile the packages.
+
+  Add two `tsconfig`, one using the previous existing configuration that is able to produce declaration files (`tsconfig.build`) and a new one `tsconfig` which is enables [_projects references_](https://www.typescriptlang.org/docs/handbook/project-references.html).
+
+### Patch Changes
+
+- ae52ba352: refactor: migrate request to node-fetch at hooks package
+- b57b43388: Enable prerelease mode with **changesets**
+- 31af01641: ESLint Warnings Fixed
+
+  Related to issue #1461
+
+  - max-len: most of the sensible max-len errors are fixed
+  - no-unused-vars: most of these types of errors are fixed by deleting not needed declarations
+  - @typescript-eslint/no-unused-vars: same as above
+
+- Updated dependencies [d87fa0268]
+- Updated dependencies [da1ee9c82]
+- Updated dependencies [26b494cbd]
+- Updated dependencies [b57b43388]
+- Updated dependencies [add778d55]
+- Updated dependencies [31af01641]
+  - @verdaccio/config@5.0.0-alpha.1
+  - @verdaccio/commons-api@10.0.0-alpha.0
+  - @verdaccio/local-storage@10.0.0-alpha.0
+  - @verdaccio/streams@10.0.0-alpha.0
+  - @verdaccio/logger@5.0.0-alpha.1
+  - @verdaccio/utils@5.0.0-alpha.1

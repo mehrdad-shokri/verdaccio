@@ -1,0 +1,29 @@
+name: 'E2E CLI'
+description: 'Run the @verdaccio/e2e-cli battery for one package manager against localhost:4873'
+
+inputs:
+  pm:
+    description: 'Package manager spec, e.g. npm@11, pnpm@11, bun@1.4.4'
+    required: true
+  uplink-port:
+    description: 'Mock uplink port; empty skips the uplink scenarios'
+    required: false
+    default: '4874'
+  pending-checks:
+    description: 'E2E_PENDING_CONTRACT_CHECKS'
+    required: false
+    default: 'tarballs'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Bun
+      if: startsWith(inputs.pm, 'bun')
+      shell: bash
+      # the npm package ships the binary, so the pinned install does not depend on GitHub releases
+      run: npm install -g "${{ inputs.pm }}"
+    - name: Run E2E CLI tests
+      shell: bash
+      env:
+        E2E_PENDING_CONTRACT_CHECKS: ${{ inputs.pending-checks }}
+      run: pnpm verdaccio-e2e --registry http://localhost:4873 --pm ${{ inputs.pm }} ${{ inputs.uplink-port != '' && format('--uplink-port {0}', inputs.uplink-port) || '' }} -v

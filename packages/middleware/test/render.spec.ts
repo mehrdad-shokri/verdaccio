@@ -1,0 +1,305 @@
+import express from 'express';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import supertest from 'supertest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+
+import { HEADERS, HEADER_TYPE, HTTP_STATUS } from '@verdaccio/core';
+import { setup } from '@verdaccio/logger';
+
+import { webMiddleware } from '../src';
+import { getConf } from './_helper';
+
+const pluginOptions = {
+  manifestFiles: {
+    js: ['runtime.js', 'vendors.js', 'main.js'],
+  },
+  staticPath: path.join(import.meta.dirname, 'static'),
+  manifest: require('./partials/manifest/manifest.json'),
+};
+
+const initializeServer = (configName: string, middlewares = {}) => {
+  const app = express();
+  app.use(webMiddleware(getConf(configName), middlewares, pluginOptions));
+  return app;
+};
+
+beforeAll(async () => {
+  await setup({});
+});
+
+describe('test web server', () => {
+  describe('render', () => {
+    describe('output', () => {
+      const render = async (config = 'default-test.yaml') => {
+        const response = await supertest(initializeServer(config))
+          .get('/-/static/ui-options.js')
+          .set('Accept', HEADERS.JAVASCRIPT_CHARSET)
+          .expect(HEADERS.CACHE_CONTROL, HEADERS.NO_CACHE)
+          .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.JAVASCRIPT_CHARSET)
+          .expect(HTTP_STATUS.OK);
+        const options = JSON.parse(response.text.slice(response.text.indexOf('=') + 1, -1));
+        return { window: { __VERDACCIO_BASENAME_UI_OPTIONS: options } };
+      };
+
+      test('should match render set ui properties', async () => {
+        const {
+          window: { __VERDACCIO_BASENAME_UI_OPTIONS },
+        } = await render('web.yaml');
+        expect(__VERDACCIO_BASENAME_UI_OPTIONS).toEqual(
+          expect.objectContaining({
+            showInfo: true,
+            showSettings: true,
+            showThemeSwitch: true,
+            showFooter: true,
+            showPackageListToolbar: false,
+            footer: 'Internal registry · [Support](https://verdaccio.org/docs/what-is-verdaccio)',
+            poweredBy: false,
+            help: '## Platform registry\nRun `npm config set registry {{registryUrl}}` first.\n',
+            showSearch: true,
+            showDownloadTarball: true,
+            darkMode: false,
+            url_prefix: '/prefix',
+            basename: '/prefix/',
+            primaryColor: '#ffffff',
+            // FIXME: mock these values, avoid random
+            // base: 'http://127.0.0.1:60864/prefix/',
+            // version: '6.0.0-6-next.28',
+            logo: 'http://logo.org/logo.png',
+            flags: { changePassword: true },
+            login: true,
+            pkgManagers: ['pnpm', 'yarn'],
+            title: 'verdaccio web',
+            scope: '@scope',
+            language: 'en-US',
+            capabilities: { provenance: true },
+          })
+        );
+      });
+
+      test('should render logo and favicon as file', async () => {
+        const {
+          window: { __VERDACCIO_BASENAME_UI_OPTIONS },
+        } = await render('file-logo.yaml');
+        expect(__VERDACCIO_BASENAME_UI_OPTIONS.logo).toMatch('/prefix/-/static/logo.png');
+        expect(__VERDACCIO_BASENAME_UI_OPTIONS.logoDark).toMatch('/prefix/-/static/dark-logo.png');
+        expect(__VERDACCIO_BASENAME_UI_OPTIONS.favicon).toMatch('/prefix/-/static/favicon.ico');
+      });
+
+      test('should render logo and favicon as URL', async () => {
+        const {
+          window: { __VERDACCIO_BASENAME_UI_OPTIONS },
+        } = await render('http-logo.yaml');
+        expect(__VERDACCIO_BASENAME_UI_OPTIONS.logo).toMatch(/https:.*logo-small.svg/i);
+        expect(__VERDACCIO_BASENAME_UI_OPTIONS.logoDark).toMatch(/https:.*logo-blackwhite.svg/i);
+        expect(__VERDACCIO_BASENAME_UI_OPTIONS.favicon).toMatch(/https:.*favicon.ico/i);
+      });
+
+      test('should not render logo as absolute file is wrong', async () => {
+        const {
+          window: { __VERDACCIO_BASENAME_UI_OPTIONS },
+        } = await render('wrong-logo.yaml');
+        expect(__VERDACCIO_BASENAME_UI_OPTIONS.logo).toEqual('');
+      });
+
+      test('should render not render a logo', async () => {
+        const {
+          window: { __VERDACCIO_BASENAME_UI_OPTIONS },
+        } = await render('no-logo.yaml');
+        expect(__VERDACCIO_BASENAME_UI_OPTIONS.logo).toEqual('');
+        expect(__VERDACCIO_BASENAME_UI_OPTIONS.favicon).toEqual('');
+      });
+
+      test('should render successfully when request has no host header', async () => {
+        const response = await supertest(initializeServer('default-test.yaml'))
+          .get('/-/static/ui-options.js')
+          .set('Accept', HEADERS.JAVASCRIPT_CHARSET)
+          .unset('Host')
+          .expect(HEADERS.CACHE_CONTROL, HEADERS.NO_CACHE)
+          .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.JAVASCRIPT_CHARSET)
+          .expect(HTTP_STATUS.OK);
+        const options = JSON.parse(response.text.slice(response.text.indexOf('=') + 1, -1));
+        expect(options.basename).toEqual('/');
+      });
+
+      test('should list bun among the default package managers', async () => {
+        const {
+          window: { __VERDACCIO_BASENAME_UI_OPTIONS },
+        } = await render('default-test.yaml');
+        expect(__VERDACCIO_BASENAME_UI_OPTIONS.pkgManagers).toEqual(['yarn', 'pnpm', 'npm', 'bun']);
+        expect(__VERDACCIO_BASENAME_UI_OPTIONS.help).toBeUndefined();
+      });
+
+      test.todo('should default title');
+      test.todo('should need html cache');
+    });
+
+    describe('status', () => {
+      test('should return the http status 200 for root', async () => {
+        return supertest(await initializeServer('default-test.yaml'))
+          .get('/')
+          .set('Accept', HEADERS.TEXT_HTML)
+          .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.TEXT_HTML_UTF8)
+          .expect(HTTP_STATUS.OK);
+      });
+
+      test('should return the body for a package detail page', async () => {
+        return supertest(await initializeServer('default-test.yaml'))
+          .get('/-/web/section/some-package')
+          .set('Accept', HEADERS.TEXT_HTML)
+          .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.TEXT_HTML_UTF8)
+          .expect(HTTP_STATUS.OK);
+      });
+
+      test('should static file not found', async () => {
+        return supertest(await initializeServer('default-test.yaml'))
+          .get('/-/static/not-found.js')
+          .set('Accept', HEADERS.TEXT_HTML)
+          .expect(HTTP_STATUS.NOT_FOUND);
+      });
+
+      test('should static file found', async () => {
+        return supertest(await initializeServer('default-test.yaml'))
+          .get('/-/static/main.js')
+          .set('Accept', HEADERS.TEXT_HTML)
+          .expect(HTTP_STATUS.OK);
+      });
+    });
+
+    describe('static file serving with root option', () => {
+      test('should serve static files using root-relative path', async () => {
+        const response = await supertest(initializeServer('default-test.yaml'))
+          .get('/-/static/main.js')
+          .expect(HTTP_STATUS.OK);
+        expect(response.status).toBe(HTTP_STATUS.OK);
+      });
+
+      test('should serve files with dots in hash (e.g. main.abc123.js)', async () => {
+        // The static directory has main.js, which proves the root option works
+        // even when the staticPath contains dot-prefixed directories (e.g. .nvm)
+        return supertest(await initializeServer('default-test.yaml'))
+          .get('/-/static/main.js')
+          .expect(HTTP_STATUS.OK);
+      });
+
+      test('should return 404 for non-existent static file', async () => {
+        return supertest(await initializeServer('default-test.yaml'))
+          .get('/-/static/does-not-exist.js')
+          .expect(HTTP_STATUS.NOT_FOUND);
+      });
+
+      test('should serve vendors.js static file', async () => {
+        return supertest(await initializeServer('default-test.yaml'))
+          .get('/-/static/vendors.js')
+          .expect(HTTP_STATUS.OK);
+      });
+
+      test('should serve runtime.js static file', async () => {
+        return supertest(await initializeServer('default-test.yaml'))
+          .get('/-/static/runtime.js')
+          .expect(HTTP_STATUS.OK);
+      });
+
+      test('should reject URL-encoded traversal on the static route', async () => {
+        // sendFileSafe replaced the original `res.sendFile(..., { root })`,
+        // so the static route must keep rejecting traversal attempts.
+        return supertest(await initializeServer('default-test.yaml'))
+          .get('/-/static/%2E%2E%2Fpartials%2Fsecret.txt')
+          .expect(HTTP_STATUS.NOT_FOUND);
+      });
+
+      describe('staticPath under a dot-prefixed ancestor directory', () => {
+        // Regression: when verdaccio is installed via pnpm, the resolved
+        // staticPath goes through `node_modules/.pnpm/...`. `res.sendFile`
+        // (via the `send` package) defaults `dotfiles` to `ignore` and 404s
+        // any absolute path containing a dot-prefixed segment, breaking the
+        // entire UI. Reproduce that layout with a temp `.pnpm`-style folder.
+        let tmpRoot: string;
+        let dottedStaticPath: string;
+
+        beforeAll(() => {
+          tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'verdaccio-dot-static-'));
+          dottedStaticPath = path.join(tmpRoot, '.pnpm', 'plugin', 'static');
+          fs.mkdirSync(dottedStaticPath, { recursive: true });
+          fs.writeFileSync(path.join(dottedStaticPath, 'main.js'), 'console.log("ok")');
+        });
+
+        afterAll(() => {
+          fs.rmSync(tmpRoot, { recursive: true, force: true });
+        });
+
+        test('should serve static files from a path containing a dot-prefixed ancestor', async () => {
+          const app = express();
+          app.use(
+            webMiddleware(
+              getConf('default-test.yaml'),
+              {},
+              { ...pluginOptions, staticPath: dottedStaticPath }
+            )
+          );
+          return supertest(app).get('/-/static/main.js').expect(HTTP_STATUS.OK);
+        });
+      });
+    });
+
+    describe('assetFolder', () => {
+      test('should serve a file from the asset folder', async () => {
+        const response = await supertest(initializeServer('web-assets.yaml'))
+          .get('/-/assets/sample.txt')
+          .expect(HTTP_STATUS.OK);
+        expect(response.text).toContain('verdaccio-asset-fixture');
+      });
+
+      test('should serve a file from an asset subfolder', async () => {
+        const response = await supertest(initializeServer('web-assets.yaml'))
+          .get('/-/assets/logos/nested.txt')
+          .expect(HTTP_STATUS.OK);
+        expect(response.text).toContain('verdaccio-nested-asset');
+      });
+
+      test('should 404 when the file does not exist', async () => {
+        return supertest(initializeServer('web-assets.yaml'))
+          .get('/-/assets/does-not-exist.txt')
+          .expect(HTTP_STATUS.NOT_FOUND);
+      });
+
+      test('should reject URL-encoded dot-dot traversal', async () => {
+        // Using the encoded form because supertest normalizes raw `..` segments
+        // away on the client side before the request reaches the server.
+        const response = await supertest(initializeServer('web-assets.yaml')).get(
+          '/-/assets/%2E%2E%2Fsecret.txt'
+        );
+        expect(response.status).toBe(HTTP_STATUS.NOT_FOUND);
+        expect(response.text).not.toContain('verdaccio-secret-should-not-be-served');
+      });
+
+      test('should reject mixed-segment traversal (subdir/%2E%2E%2F..)', async () => {
+        const response = await supertest(initializeServer('web-assets.yaml')).get(
+          '/-/assets/logos/%2E%2E%2F%2E%2E%2Fsecret.txt'
+        );
+        expect(response.status).toBe(HTTP_STATUS.NOT_FOUND);
+        expect(response.text).not.toContain('verdaccio-secret-should-not-be-served');
+      });
+
+      test('should reject absolute paths (URL-encoded leading slash)', async () => {
+        return supertest(initializeServer('web-assets.yaml'))
+          .get('/-/assets/%2Fetc%2Fpasswd')
+          .expect(HTTP_STATUS.NOT_FOUND);
+      });
+
+      test('should not register the asset route when assetFolder is unset', async () => {
+        return supertest(initializeServer('default-test.yaml'))
+          .get('/-/assets/sample.txt')
+          .expect(HTTP_STATUS.NOT_FOUND);
+      });
+
+      test('should not serve the asset folder itself as a file', async () => {
+        // `.` resolves to the base directory; sendFileSafe must refuse to
+        // hand back a directory listing or 200 the directory.
+        const response = await supertest(initializeServer('web-assets.yaml')).get('/-/assets/%2E');
+        expect(response.status).toBe(HTTP_STATUS.NOT_FOUND);
+      });
+    });
+  });
+});

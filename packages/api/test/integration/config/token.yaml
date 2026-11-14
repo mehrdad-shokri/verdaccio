@@ -1,0 +1,23 @@
+storage: ./storage
+
+# trust the forwarding chain so X-Forwarded-For is honored for token CIDR checks
+server:
+  trustProxy: true
+
+auth:
+  htpasswd:
+    file: ./htpasswd
+
+packages:
+  '@token/*':
+    access: $authenticated
+    publish: $authenticated
+  'only-you-can-publish':
+    access: $authenticated
+    publish: $authenticated
+
+log: { type: stdout, format: pretty, level: debug }
+
+## enable token for testing
+flags:
+  token: true

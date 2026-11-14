@@ -1,0 +1,8 @@
+# require('@verdaccio-scope/verdaccio-fake-plugin') as dependency
+#
+# "devDependencies": {
+#   "@verdaccio-scope/verdaccio-fake-plugin": "1.0.0-next-9.0"
+# }
+auth:
+  '@verdaccio-scope/verdaccio-fake-plugin':
+    enabled: true

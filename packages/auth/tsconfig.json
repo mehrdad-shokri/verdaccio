@@ -1,0 +1,35 @@
+{
+  "extends": "../../tsconfig.reference",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./build",
+    "noImplicitAny": true
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    {
+      "path": "../config"
+    },
+    {
+      "path": "../core/core"
+    },
+    {
+      "path": "../core/types"
+    },
+    {
+      "path": "../loaders"
+    },
+    {
+      "path": "../logger"
+    },
+    {
+      "path": "../middleware"
+    },
+    {
+      "path": "../plugins/htpasswd"
+    },
+    {
+      "path": "../signature"
+    }
+  ]
+}

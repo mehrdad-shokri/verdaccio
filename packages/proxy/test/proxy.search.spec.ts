@@ -1,0 +1,339 @@
+/* global AbortController */
+import getStream from 'get-stream';
+import nock from 'nock';
+import path from 'node:path';
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { Config, parseConfigFile } from '@verdaccio/config';
+import { HEADERS, TOKEN_BASIC, TOKEN_BEARER, streamUtils } from '@verdaccio/core';
+import { logger, setup } from '@verdaccio/logger';
+
+import { ProxyStorage } from '../src';
+
+const getConf = (name) => path.join(import.meta.dirname, '/conf', name);
+
+beforeAll(async () => {
+  await setup({});
+});
+
+beforeEach(() => {
+  nock.cleanAll();
+  nock.abortPendingRequests();
+});
+afterEach(() => vi.restoreAllMocks());
+
+const domain = 'https://registry.npmjs.org';
+
+describe('proxy', () => {
+  const queryUrl = '/-/v1/search?maintenance=1&popularity=1&quality=1&size=10&text=verdaccio';
+  const defaultRequestOptions = {
+    url: domain,
+  };
+  const proxyPath = getConf('proxy1.yaml');
+  const conf = new Config(parseConfigFile(proxyPath));
+
+  describe('search', () => {
+    test('logs the original paginated request failure and uplink without exposing it to clients', async () => {
+      nock(domain)
+        .get(queryUrl)
+        .replyWithError({ code: 'ECONNREFUSED', message: 'connection refused in test' });
+      const prox1 = new ProxyStorage('uplink', defaultRequestOptions, conf, logger);
+      const log = vi.spyOn(prox1.logger, 'error');
+      await expect(
+        prox1.search({
+          url: queryUrl,
+          abort: new AbortController(),
+          retry: { limit: 0 },
+          onSearchPage: () => {},
+        })
+      ).rejects.toThrow('uplink search failed');
+      expect(log).toHaveBeenCalledWith(
+        { name: 'uplink', errorMessage: expect.stringContaining('connection refused in test') },
+        'proxy uplink @{name} search error: @{errorMessage}'
+      );
+    });
+
+    test.each([
+      ['root URL', domain, queryUrl, '/-/v1/search'],
+      ['root URL with trailing slash', `${domain}/`, queryUrl, '/-/v1/search'],
+      ['subpath', `${domain}/private/npm`, queryUrl, '/private/npm/-/v1/search'],
+      [
+        'subpath with trailing slash',
+        `${domain}/private/npm/`,
+        queryUrl,
+        '/private/npm/-/v1/search',
+      ],
+      [
+        'subpath with multiple trailing slashes',
+        `${domain}/private/npm///`,
+        queryUrl,
+        '/private/npm/-/v1/search',
+      ],
+      [
+        'search path without leading slash',
+        `${domain}/private/npm`,
+        queryUrl.slice(1),
+        '/private/npm/-/v1/search',
+      ],
+      [
+        'subpath with query',
+        `${domain}/private/npm?key=value`,
+        queryUrl,
+        '/private/npm/-/v1/search',
+      ],
+      [
+        'subpath with fragment',
+        `${domain}/private/npm#section`,
+        queryUrl,
+        '/private/npm/-/v1/search',
+      ],
+      [
+        'subpath with query and fragment',
+        `${domain}/private/npm?key=value#section`,
+        queryUrl,
+        '/private/npm/-/v1/search',
+      ],
+      [
+        'subpath with trailing slashes before query and fragment',
+        `${domain}/private/npm///?key=value#section`,
+        queryUrl,
+        '/private/npm/-/v1/search',
+      ],
+    ])('preserves the configured uplink %s', async (_name, uplinkUrl, searchUrl, path) => {
+      const response = require('./partials/search-v1.json');
+      const upstream = nock(domain)
+        .get(`${path}?maintenance=1&popularity=1&quality=1&size=10&text=verdaccio`)
+        .reply(200, response);
+      const prox1 = new ProxyStorage('uplink', { url: uplinkUrl }, conf, logger);
+      const abort = new AbortController();
+      const onSearchPage = vi.fn();
+      const stream = await prox1.search({
+        abort,
+        url: searchUrl,
+        onSearchPage,
+      });
+
+      const searchResponse = await getStream(stream.pipe(streamUtils.transformObjectToString()));
+      expect(JSON.parse(searchResponse)).toEqual(response.objects);
+      expect(onSearchPage).toHaveBeenCalledExactlyOnceWith(response.total);
+      expect(upstream.isDone()).toBe(true);
+      expect(prox1.url.href).toBe(new URL(uplinkUrl).href);
+    });
+
+    test('forwards the default search headers to the uplink', async () => {
+      const response = require('./partials/search-v1.json');
+      const request = nock(domain, {
+        reqheaders: {
+          [HEADERS.ACCEPT]: `${HEADERS.JSON};`,
+          [HEADERS.ACCEPT_ENCODING]: 'gzip',
+          [HEADERS.USER_AGENT]: /npm/,
+        },
+      })
+        .get(queryUrl)
+        .reply(200, response);
+      const prox1 = new ProxyStorage('uplink', defaultRequestOptions, conf, logger);
+
+      const stream = await prox1.search({
+        abort: new AbortController(),
+        url: queryUrl,
+      });
+
+      const searchResponse = await getStream(stream.pipe(streamUtils.transformObjectToString()));
+      expect(searchResponse).not.toBe('');
+      expect(request.isDone()).toBe(true);
+    });
+
+    test('does not forward caller-provided headers to the uplink', async () => {
+      const response = require('./partials/search-v1.json');
+      const request = nock(domain)
+        .get(queryUrl)
+        .reply(200, function () {
+          expect(this.req.headers.authorization).toBeUndefined();
+          expect(this.req.headers.cookie).toBeUndefined();
+          expect(this.req.headers['npm-otp']).toBeUndefined();
+          expect(this.req.headers['npm-session']).toBeUndefined();
+          expect(this.req.headers['npm-command']).toBeUndefined();
+          expect(this.req.headers['npm-scope']).toBeUndefined();
+          expect(this.req.headers['npm-auth-type']).toBeUndefined();
+          expect(this.req.headers['proxy-authorization']).toBeUndefined();
+          expect(this.req.headers['x-forwarded-for']).toBeUndefined();
+          expect(this.req.headers['x-real-ip']).toBeUndefined();
+          expect(this.req.headers.forwarded).toBeUndefined();
+          expect(this.req.headers.referer).toBeUndefined();
+          expect(this.req.headers['x-client-secret']).toBeUndefined();
+          return response;
+        });
+      const prox1 = new ProxyStorage('uplink', defaultRequestOptions, conf, logger);
+
+      const stream = await prox1.search({
+        abort: new AbortController(),
+        url: queryUrl,
+        headers: new Headers({
+          authorization: 'Bearer client-token',
+          cookie: 'session=secret',
+          'npm-otp': '123456',
+          'npm-session': 'client-session',
+          'npm-command': 'search',
+          'npm-scope': '@private',
+          'npm-auth-type': 'legacy',
+          'proxy-authorization': 'Basic proxy-secret',
+          'x-forwarded-for': '192.0.2.1',
+          'x-real-ip': '192.0.2.2',
+          forwarded: 'for=192.0.2.3',
+          referer: 'https://client.example/private',
+          'x-client-secret': 'secret',
+        }),
+      });
+
+      const searchResponse = await getStream(stream.pipe(streamUtils.transformObjectToString()));
+      expect(searchResponse).not.toBe('');
+      expect(request.isDone()).toBe(true);
+    });
+
+    test.each([
+      ['Bearer', TOKEN_BEARER, 'bearer-token', `${TOKEN_BEARER} bearer-token`],
+      ['Basic', TOKEN_BASIC, 'basic-token', `${TOKEN_BASIC} basic-token`],
+    ] as const)(
+      'forwards %s authentication to the uplink',
+      async (_name, type, token, authorization) => {
+        const response = require('./partials/search-v1.json');
+        const request = nock(domain, {
+          reqheaders: {
+            [HEADERS.AUTHORIZATION]: authorization,
+          },
+        })
+          .get(queryUrl)
+          .reply(200, response);
+        const prox1 = new ProxyStorage(
+          'uplink',
+          {
+            url: domain,
+            auth: { type, token },
+          },
+          conf,
+          logger
+        );
+
+        const stream = await prox1.search({
+          abort: new AbortController(),
+          url: queryUrl,
+          headers: new Headers({
+            authorization: `${TOKEN_BEARER} client-token`,
+            'x-uplink-header': 'client-value',
+          }),
+        });
+
+        const searchResponse = await getStream(stream.pipe(streamUtils.transformObjectToString()));
+        expect(searchResponse).not.toBe('');
+        expect(request.isDone()).toBe(true);
+      }
+    );
+
+    test('allows configured uplink headers to override generated headers', async () => {
+      const response = require('./partials/search-v1.json');
+      const request = nock(domain, {
+        reqheaders: {
+          [HEADERS.AUTHORIZATION]: `${TOKEN_BASIC} configured-token`,
+          'x-uplink-header': 'search-value',
+        },
+      })
+        .get(queryUrl)
+        .reply(200, response);
+      const prox1 = new ProxyStorage(
+        'uplink',
+        {
+          url: domain,
+          auth: {
+            type: TOKEN_BEARER,
+            token: 'generated-token',
+          },
+          headers: {
+            [HEADERS.AUTHORIZATION]: `${TOKEN_BASIC} configured-token`,
+            'x-uplink-header': 'search-value',
+          },
+        },
+        conf,
+        logger
+      );
+
+      const stream = await prox1.search({
+        abort: new AbortController(),
+        url: queryUrl,
+      });
+
+      const searchResponse = await getStream(stream.pipe(streamUtils.transformObjectToString()));
+      expect(searchResponse).not.toBe('');
+      expect(request.isDone()).toBe(true);
+    });
+
+    test('rejects without calling the uplink when the configured token env is missing', async () => {
+      delete process.env.VERDACCIO_MISSING_SEARCH_TOKEN;
+      const request = nock(domain).get(queryUrl).reply(200, {});
+      const prox1 = new ProxyStorage(
+        'uplink',
+        {
+          url: domain,
+          auth: {
+            type: TOKEN_BEARER,
+            token_env: 'VERDACCIO_MISSING_SEARCH_TOKEN',
+          },
+        },
+        conf,
+        logger
+      );
+
+      await expect(prox1.search({ abort: new AbortController(), url: queryUrl })).rejects.toThrow();
+      expect(request.isDone()).toBe(false);
+      nock.cleanAll();
+    });
+
+    test('handle bad response 409', async () => {
+      nock(domain)
+        .get('/-/v1/search?maintenance=1&popularity=1&quality=1&size=10&text=verdaccio')
+        .reply(409);
+      const abort = new AbortController();
+      const prox1 = new ProxyStorage('uplink', defaultRequestOptions, conf, logger);
+      await expect(
+        prox1.search({
+          abort,
+          url: queryUrl,
+        })
+      ).rejects.toThrow('bad status code 409 from uplink');
+    });
+
+    test('abort search from endpoint', async () => {
+      nock(domain)
+        .get('/-/v1/search?maintenance=1&popularity=1&quality=1&size=10&text=verdaccio')
+        .delay(5000)
+        .reply(200, require('./partials/search-v1.json'));
+      const abort = new AbortController();
+      const prox1 = new ProxyStorage('uplink', defaultRequestOptions, conf, logger);
+      const searchPromise = prox1.search({
+        abort,
+        url: queryUrl,
+      });
+      abort.abort();
+      await expect(searchPromise).rejects.toThrow();
+    });
+
+    // // TODO: we should test the gzip deflate here, but is hard to test
+    // // fix me if you can deal with Incorrect Header Check issue
+    // test.todo('get file from endpoint with gzip headers');
+
+    // test('search endpoint fails', async () => {
+    //   const mockAgent = new MockAgent({ connections: 1 });
+    //   mockAgent.disableNetConnect();
+    //   setGlobalDispatcher(mockAgent);
+    //   const mockClient = mockAgent.get(domain);
+    //   mockClient.intercept(options).reply(500, {});
+    //   const abort = new AbortController();
+    //   const prox1 = new ProxyStorage('uplink',defaultRequestOptions, conf);
+    //   await expect(
+    //     prox1.search({
+    //       abort,
+    //       url: queryUrl,
+    //     })
+    //   ).rejects.toThrow('bad status code 500 from uplink');
+    // });
+  });
+});

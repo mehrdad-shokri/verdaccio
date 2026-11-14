@@ -1,0 +1,185 @@
+/* eslint-disable */
+import buildDebug from 'debug';
+import { assign } from 'lodash-es';
+import constants from 'node:constants';
+import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
+import url from 'node:url';
+
+import { getConfigParsed, getListenAddress } from '@verdaccio/config';
+import { logger, setup } from '@verdaccio/logger';
+import { ConfigYaml, HttpsConfKeyCert, HttpsConfPfx } from '@verdaccio/types';
+
+import { displayExperimentsInfoBox } from './experiments';
+
+export type ServerFactory = (config: ConfigYaml) => Promise<any>;
+
+const debug = buildDebug('verdaccio:node-api');
+
+function unlinkAddressPath(addr) {
+  if (addr.path && fs.existsSync(addr.path)) {
+    fs.unlinkSync(addr.path);
+  }
+}
+
+/**
+ * Return a native HTTP/HTTPS server instance
+ * @param config
+ * @param addr
+ * @param app
+ */
+export function createServerFactory(config: ConfigYaml, addr, app) {
+  let serverFactory;
+  if (addr.proto === 'https') {
+    debug('https enabled');
+    try {
+      let httpsOptions = {
+        // disable insecure SSLv2 and SSLv3
+        secureOptions: constants.SSL_OP_NO_SSLv2 | constants.SSL_OP_NO_SSLv3,
+      };
+
+      const keyCertConfig = config.https as HttpsConfKeyCert;
+      const pfxConfig = config.https as HttpsConfPfx;
+
+      // https must either have key and cert or a pfx and (optionally) a passphrase
+      if (!((keyCertConfig.key && keyCertConfig.cert) || pfxConfig.pfx)) {
+        // logHTTPSError(configPath);
+        throw Error('bad format https configuration');
+      }
+
+      if (pfxConfig.pfx) {
+        const { pfx, passphrase } = pfxConfig;
+        httpsOptions = assign(httpsOptions, {
+          pfx: fs.readFileSync(pfx),
+          passphrase: passphrase || '',
+        });
+      } else {
+        const { key, cert, ca } = keyCertConfig;
+        httpsOptions = assign(httpsOptions, {
+          key: fs.readFileSync(key),
+          cert: fs.readFileSync(cert),
+          ...(ca && {
+            ca: fs.readFileSync(ca),
+          }),
+        });
+      }
+      // TODO: enable http2 as feature
+      // if (config.server.http2) <-- check if force http2
+      serverFactory = https.createServer(httpsOptions, app);
+    } catch (err: any) {
+      throw new Error(`cannot create https server: ${err.message}`);
+    }
+  } else {
+    // http
+    debug('http enabled');
+    serverFactory = http.createServer(app);
+  }
+
+  debug('server created');
+
+  if (
+    config.server &&
+    typeof config.server.keepAliveTimeout !== 'undefined' &&
+    // @ts-ignore
+    config.server.keepAliveTimeout !== 'null'
+  ) {
+    // library definition for node is not up to date (doesn't contain recent 8.0 changes)
+    serverFactory.keepAliveTimeout = config.server.keepAliveTimeout * 1000;
+  }
+  // Remove stale Unix socket file from a previous run to avoid EADDRINUSE
+  unlinkAddressPath(addr);
+
+  return serverFactory;
+}
+
+/**
+ * Start the server on the port defined (or the port defined in the config file)
+ * @param config
+ * @param port
+ * @param version
+ * @param pkgName
+ */
+export async function initServer(
+  config: ConfigYaml,
+  port: string | void,
+  version: string,
+  pkgName: string,
+  serverFactory: ServerFactory
+): Promise<void> {
+  const logger = await setup(config?.log as any);
+  const addr = getListenAddress(port ?? config?.listen, logger);
+  displayExperimentsInfoBox(config.flags);
+
+  const app = await serverFactory(config);
+  const httpServer = createServerFactory(config, addr, app);
+
+  return new Promise<void>((resolve, reject) => {
+    httpServer
+      .listen(addr.port || addr.path, addr.host, (): void => {
+        // send a message for test
+        if (typeof process.send === 'function') {
+          process.send({
+            verdaccio_started: true,
+          });
+        }
+        const addressServer = `${
+          addr.path
+            ? url.format({
+                protocol: 'unix',
+                pathname: addr.path,
+              })
+            : url.format({
+                protocol: addr.proto,
+                hostname: addr.host,
+                port: addr.port,
+                pathname: '/',
+              })
+        }`;
+        logger.info({ addressServer }, 'http address: @{addressServer}');
+        logger.info({ version }, 'version: @{version}');
+        resolve();
+      })
+      .on('error', function (err): void {
+        reject(err);
+        process.exitCode = 1;
+      });
+    function handleShutdownGracefully() {
+      logger.info('received shutdown signal - closing server gracefully...');
+      httpServer.close(() => {
+        logger.info('server closed.');
+        process.exit(0);
+      });
+    }
+
+    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+      // Use once() so that receiving double signals exit the app.
+      process.once(signal, handleShutdownGracefully);
+    }
+  });
+}
+
+/**
+ * Exposes a server factory to be instantiated programmatically.
+ *
+    ```ts
+    const app = await runServer(); // default configuration
+    const app = await runServer('./config/config.yaml');
+    const app = await runServer({ configuration });
+    app.listen(4000, (event) => {
+    // do something
+    });
+    ```
+ * @param config
+ */
+export async function runServer(
+  config: string | ConfigYaml | undefined,
+  serverFactory: ServerFactory
+): Promise<any> {
+  const configurationParsed = getConfigParsed(config);
+  await setup(configurationParsed.log as any);
+  displayExperimentsInfoBox(configurationParsed.flags);
+  const addr = getListenAddress(configurationParsed.listen, logger);
+  const app = await serverFactory(configurationParsed);
+  return createServerFactory(configurationParsed, addr, app);
+}

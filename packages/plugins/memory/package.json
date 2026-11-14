@@ -1,0 +1,70 @@
+{
+  "name": "verdaccio-memory",
+  "version": "14.0.0-next-9.44",
+  "description": "Verdaccio Memory Storage Plugin",
+  "keywords": [
+    "private",
+    "package",
+    "repository",
+    "registry",
+    "enterprise",
+    "modules",
+    "proxy",
+    "server",
+    "verdaccio"
+  ],
+  "author": "Juan Picado <juanpicado19@gmail.com>",
+  "license": "MIT",
+  "homepage": "https://verdaccio.org",
+  "repository": {
+    "type": "https",
+    "url": "https://github.com/verdaccio/verdaccio",
+    "directory": "packages/plugins/memory"
+  },
+  "bugs": {
+    "url": "https://github.com/verdaccio/verdaccio/issues"
+  },
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@verdaccio/core": "workspace:9.0.0-next-9.44",
+    "debug": "4.4.3",
+    "memfs": "4.80.0"
+  },
+  "devDependencies": {
+    "@verdaccio/config": "workspace:9.0.0-next-9.44",
+    "@verdaccio/logger": "workspace:9.0.0-next-9.44",
+    "@verdaccio/plugin-verifier": "workspace:1.0.0-next-9.40",
+    "cross-env": "10.1.0",
+    "rimraf": "6.1.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  },
+  "scripts": {
+    "clean": "rimraf ./build",
+    "build": "vite build",
+    "watch": "vite build --watch",
+    "test": "cross-env NODE_ENV=test vitest run --fsModuleCachePath node_modules/.vitest-cache"
+  },
+  "funding": {
+    "type": "opencollective",
+    "url": "https://opencollective.com/verdaccio"
+  },
+  "module": "./build/index.mjs",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./build/index.d.ts",
+        "default": "./build/index.mjs"
+      },
+      "require": {
+        "types": "./build/index.d.ts",
+        "default": "./build/index.js"
+      }
+    },
+    "./build/*": "./build/*"
+  }
+}

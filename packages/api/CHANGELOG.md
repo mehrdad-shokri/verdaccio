@@ -1,0 +1,3358 @@
+# @verdaccio/api
+
+## 9.0.0-next-9.44
+
+### Patch Changes
+
+- Updated dependencies [7f75311]
+  - @verdaccio/config@9.0.0-next-9.44
+  - @verdaccio/store@9.0.0-next-9.44
+  - @verdaccio/auth@9.0.0-next-9.44
+  - @verdaccio/core@9.0.0-next-9.44
+  - @verdaccio/hooks@9.0.0-next-9.44
+  - @verdaccio/logger@9.0.0-next-9.44
+  - @verdaccio/middleware@9.0.0-next-9.44
+
+## 9.0.0-next-9.43
+
+### Minor Changes
+
+- aeaf4d8: Make `npm audit signatures` work through Verdaccio for packages proxied from an uplink, behind the experimental `flags.signatures` setting.
+  
+  Verdaccio already kept the `dist.signatures` and `dist.attestations` fields that registry.npmjs.org attaches to every version, but it did not serve the two routes the npm CLI reads to verify them. npm resolves signing keys by registry host, so against Verdaccio it requested `GET /-/npm/v1/keys`, received a 404 and aborted the whole command with `EMISSINGSIGNATUREKEY` on the first package coming from npmjs. Attestation bundles are fetched from the registry the package was installed from as well, so `GET /-/npm/v1/attestations/<name>@<version>` also returned 404.
+  
+  Both routes now exist when `flags.signatures: true` is set in the configuration (the feature is experimental and may change). `GET /-/npm/v1/keys` returns the signing keys of every configured uplink merged by key id (refreshed hourly) and answers 404 when none publishes keys. `GET /-/npm/v1/attestations/<name>@<version>` relays the attestations from the first uplink that proxies the package, applying the package `access` rules, and answers 404 when the uplink has none. With this `npm audit signatures` verifies registry signatures and provenance attestations of proxied packages exactly as it does against registry.npmjs.org. Enable it with:
+  
+  ```yaml
+  flags:
+    signatures: true
+  ```
+  
+  Packages published to Verdaccio itself are not signed yet. npm treats any registry that publishes keys as a registry whose packages should all be signed, so once the flag is on `npm audit signatures` lists every locally published package as having a missing registry signature and exits with code 1; proxied packages verify, local ones are reported. Keep the flag off if that report would break a CI gate, until Verdaccio signs local packages. `npm publish --provenance` is still rejected.
+
+### Patch Changes
+
+- 4099f77: Fix the registry closing the client connection after answering a failed tarball download, which made the next request on that keep-alive connection fail with `ECONNRESET` or "other side closed".
+  
+  When a tarball request fails before any data is sent, for example a 404 for a tarball that does not exist locally or on any uplink, the registry sent the JSON error response and then also passed the same error on to the HTTP framework. Because the response was already sent, the framework reacted by destroying the socket. Package managers reuse connections, so the request that followed on the same socket failed whenever the client sent it before noticing the close, which keep-alive clients under load usually do. Each of these failures also printed a raw `NotFoundError` stack trace to stderr. The download of a staged tarball (available when the `stage` flag is enabled) had the same problem.
+  
+  A failed tarball request is now answered once with its JSON error and the connection stays open for the next request. Failures after the download has started are unchanged: the connection is still terminated, because no error status can be sent at that point. No configuration change is needed.
+  
+  Affected: verdaccio 7.x (7.0.0 to 7.0.2) and the `@verdaccio/api` 9.0.0-next prereleases it ships, up to `9.0.0-next-9.42`. verdaccio 6.x is not affected.
+- Updated dependencies [aeaf4d8]
+- Updated dependencies [8c56d8e]
+  - @verdaccio/config@9.0.0-next-9.43
+  - @verdaccio/core@9.0.0-next-9.43
+  - @verdaccio/middleware@9.0.0-next-9.43
+  - @verdaccio/store@9.0.0-next-9.43
+  - @verdaccio/auth@9.0.0-next-9.43
+  - @verdaccio/hooks@9.0.0-next-9.43
+  - @verdaccio/logger@9.0.0-next-9.43
+
+## 9.0.0-next-9.42
+
+### Patch Changes
+
+- Updated dependencies [1d1ba47]
+  - @verdaccio/core@9.0.0-next-9.42
+  - @verdaccio/auth@9.0.0-next-9.42
+  - @verdaccio/config@9.0.0-next-9.42
+  - @verdaccio/hooks@9.0.0-next-9.42
+  - @verdaccio/logger@9.0.0-next-9.42
+  - @verdaccio/middleware@9.0.0-next-9.42
+  - @verdaccio/store@9.0.0-next-9.42
+
+## 9.0.0-next-9.41
+
+### Patch Changes
+
+- @verdaccio/config@9.0.0-next-9.41
+  - @verdaccio/core@9.0.0-next-9.41
+  - @verdaccio/auth@9.0.0-next-9.41
+  - @verdaccio/hooks@9.0.0-next-9.41
+  - @verdaccio/middleware@9.0.0-next-9.41
+  - @verdaccio/store@9.0.0-next-9.41
+  - @verdaccio/logger@9.0.0-next-9.41
+
+## 9.0.0-next-9.40
+
+### Patch Changes
+
+- @verdaccio/config@9.0.0-next-9.40
+  - @verdaccio/core@9.0.0-next-9.40
+  - @verdaccio/auth@9.0.0-next-9.40
+  - @verdaccio/hooks@9.0.0-next-9.40
+  - @verdaccio/middleware@9.0.0-next-9.40
+  - @verdaccio/store@9.0.0-next-9.40
+  - @verdaccio/logger@9.0.0-next-9.40
+
+## 9.0.0-next-9.39
+
+### Patch Changes
+
+- Updated dependencies [eb0cb3d]
+  - @verdaccio/middleware@9.0.0-next-9.39
+  - @verdaccio/config@9.0.0-next-9.39
+  - @verdaccio/auth@9.0.0-next-9.39
+  - @verdaccio/core@9.0.0-next-9.39
+  - @verdaccio/hooks@9.0.0-next-9.39
+  - @verdaccio/logger@9.0.0-next-9.39
+  - @verdaccio/store@9.0.0-next-9.39
+
+## 9.0.0-next-9.38
+
+### Patch Changes
+
+- Updated dependencies [d8ff951]
+  - @verdaccio/config@9.0.0-next-9.38
+  - @verdaccio/auth@9.0.0-next-9.38
+  - @verdaccio/hooks@9.0.0-next-9.38
+  - @verdaccio/middleware@9.0.0-next-9.38
+  - @verdaccio/store@9.0.0-next-9.38
+  - @verdaccio/core@9.0.0-next-9.38
+  - @verdaccio/logger@9.0.0-next-9.38
+
+## 9.0.0-next-9.37
+
+### Minor Changes
+
+- c2eafec: Add `GET /-/package/{package-name}/version/{version}/status` for authenticated users with publish access. The response contains `packageName`, `version`, and `status` (`published` or `staged`). Invalid names and non-exact versions return 400 before authentication; missing credentials return 401, and missing versions or denied package access return the same 404.
+  
+  Published versions are resolved from local metadata (including cached metadata), with manifest filters applied, without contacting uplinks. Staged versions are available when `flags.stage` is enabled; the endpoint also works for published versions with staging disabled. This is a local view, not a live status query to upstream registries.
+  
+  Verdaccio does not track automated validation, moderation, or deletion history, so it does not emit `validating`, `blocked`, or `deleted`. Versions no longer present locally or in staging return 404. No storage migration is required.
+  
+  Staged version listings and details also include `status: "staged"`, allowing npm stage clients to display that the version is ready for maintainer review. Existing records receive this field when read.
+
+### Patch Changes
+
+- c7bf0d0: Restrict version unpublishing to registry requests that passed the unpublish authorization route. Publish requests can no longer be interpreted as version removals based only on the shape of their package metadata.
+  
+  Deprecation updates continue to work through the publish route when they retain all stored versions. This corrects metadata update handling in the 9.x prerelease line and requires no configuration changes.
+- 8a6e1a1: Update runtime dependencies across the registry and run the official Docker image on Node.js 26.
+  
+  The Docker image now builds and runs on `node:26-alpine`, the Node.js line that becomes Active LTS on 28 October 2026; Node.js 24 entered maintenance on 20 October. Operators who extend the image should check that any native addons they install support Node.js 26.
+  
+  The uplink, notification and audit HTTP client moves to `got` 16. Verdaccio does not use the options removed in that release (the HTTP/2 agent slot, `dnsCache` and the old `auth` stubs), so uplink configuration, `agent_options` and `https_proxy` behave as before. Uplink responses with an error status, such as a 404 for a package the uplink does not have, keep appearing in the `http` log as they did with `got` 15. The CLI moves to `chalk` 6 and the web UI's README renderer to `marked` 18.
+  
+  The remaining updates are minor or patch releases: `express` 5.3.0 in every package that serves HTTP, `express-rate-limit` 8.7.1, `pino` 10.4.0, `js-yaml` 5.5.0, `tar-stream` 3.2.2, `sanitize-filename` 1.6.4, `process-warning` 5.1.1 and `memfs` 4.80.0. No configuration changes are required.
+- Updated dependencies [c7bf0d0]
+- Updated dependencies [4a483d0]
+- Updated dependencies [c2eafec]
+- Updated dependencies [8a6e1a1]
+- Updated dependencies [0fc3051]
+- Updated dependencies [0fc3051]
+  - @verdaccio/store@9.0.0-next-9.37
+  - @verdaccio/core@9.0.0-next-9.37
+  - @verdaccio/auth@9.0.0-next-9.37
+  - @verdaccio/middleware@9.0.0-next-9.37
+  - @verdaccio/config@9.0.0-next-9.37
+  - @verdaccio/logger@9.0.0-next-9.37
+  - @verdaccio/hooks@9.0.0-next-9.37
+
+## 9.0.0-next-9.36
+
+### Patch Changes
+
+- 5009e4d: Fix `npm login`, `yarn npm login` and `pnpm login` failing with `401 need: Bearer`, for a user that already exists and, with pnpm, also when registering a new user.
+  
+  When the account exists, the npm client gets `409` on `PUT /-/user/org.couchdb.user:<name>` and retries the same request with `Authorization: Basic`; Yarn sends Basic on the `GET` of the same path as well, and pnpm sends it on a single `PUT`, even when the user does not exist yet. Removing incoming Basic authentication dropped that retry along with the rest, so the first token for an existing user could no longer be obtained through the legacy login (`/-/v1/login` is only available behind `flags.webLogin`). Tokens already issued, `_authToken` in `.npmrc` and registering a new user without a Basic header (npm, Yarn) were not affected.
+  
+  Basic is accepted again, and only on the login routes (`GET` and `PUT /-/user/org.couchdb.user:*`). The password is checked behind the same rate limit and two-factor challenge as before, and every other route still answers `401` to a Basic header. A failure of the authentication backend is reported as an error instead of being taken for an unknown user. Affects the versions that removed incoming Basic authentication (`7.0.0-next-7.x` and `9.0.0-next-9.x`); 6.x was never affected.
+  
+  To keep rejecting Basic everywhere, including the login route, set `security.api.basicLogin: false`.
+- Updated dependencies [5009e4d]
+  - @verdaccio/auth@9.0.0-next-9.36
+  - @verdaccio/config@9.0.0-next-9.36
+  - @verdaccio/store@9.0.0-next-9.36
+  - @verdaccio/core@9.0.0-next-9.36
+  - @verdaccio/hooks@9.0.0-next-9.36
+  - @verdaccio/logger@9.0.0-next-9.36
+  - @verdaccio/middleware@9.0.0-next-9.36
+
+## 9.0.0-next-9.35
+
+### Patch Changes
+
+- f8369c9: fix: return 401 when auth credentials are invalid on GET /-/user/
+- eca39a9: chore(api): helper clean-up
+- Updated dependencies [d733daf]
+- Updated dependencies [1693358]
+  - @verdaccio/store@9.0.0-next-9.35
+  - @verdaccio/core@9.0.0-next-9.35
+  - @verdaccio/auth@9.0.0-next-9.35
+  - @verdaccio/config@9.0.0-next-9.35
+  - @verdaccio/hooks@9.0.0-next-9.35
+  - @verdaccio/logger@9.0.0-next-9.35
+  - @verdaccio/middleware@9.0.0-next-9.35
+
+## 9.0.0-next-9.34
+
+### Patch Changes
+
+- 83eb46c: fix(store): enforce `publish.check_owners` on deprecate, version unpublish and dist-tags
+  
+  `npm deprecate`, version-level unpublish and dist-tag changes all mutate the package through the store without the store-level ownership check used by publish, owner changes, tarball removal, and package removal. With `unpublish: $authenticated`, that check is the only owner protection on these routes.
+  
+  - `deprecate` and `unPublishAPackage` now run the ownership check against the stored manifest before applying the change; the package name is always taken from the request URL, never from the request body.
+  - `mergeTagsNext` (dist-tag add/rm) now runs the ownership check as well.
+  - `changePackage` no longer wipes the stored `maintainers` list when the request body omits it (e.g. deprecate bodies), which previously turned the ownership check into a no-op for that package.
+  - Cached manifests of proxied packages now record the upstream maintainers, so the ownership check also protects them (they were created with an empty list, which skips the check).
+  - `changePackage` rejects bodies whose `_rev` is missing or empty (422) or does not match the stored revision (409); a deprecate without a revision, or with a stale one, no longer silently drops concurrently published versions, and a stale version unpublish no longer reports success without applying (which made npm delete the tarball anyway). Empty `_rev` is also rejected by the unpublish body schema.
+  - `changeOwners` keeps the request body's `_rev` when calling `changePackage` instead of substituting the latest local revision, so a concurrent owner update with a stale revision is rejected rather than overwriting the other change.
+  - The owner pre-check on `GET /:package?write=true` now actually runs (it read a request option that was never set) and returns 403 instead of wrapping it into a 400.
+  - fix(local-storage): errors thrown by the `updatePackage` handler are no longer masked as `resource temporarily unavailable` after unlocking; the original error (403 forbidden, 404 unknown tag version, 409 conflict) reaches the client.
+- a376746: Return HTTP 400 with `ERR_TEXT_MISSING` when Search v1 receives no usable `text` query parameter.
+  
+  Earlier releases in the 9.x API line could treat missing or blank search text as a successful search with no results. The endpoint now requires a single string containing at least one non-whitespace character. Missing, empty, whitespace-only, or repeated values are rejected before searching local packages or uplinks, with npm's JSON error message and code.
+  
+  Clients calling `GET /-/v1/search` directly must supply a non-blank `text` value. A valid search with no matching packages still returns HTTP 200 with an empty results array.
+- 4064b28: Improve validation of Search v1 query parameters.
+  
+  `size` and `from` now accept only a single plain value; anything else, including repeated parameters, falls back to the default page size and offset, as other non-numeric values already did. Only plain string parameters are forwarded to uplinks. Registry configuration does not need to change.
+- Updated dependencies [83eb46c]
+- Updated dependencies [0cac607]
+- Updated dependencies [b6cc475]
+- Updated dependencies [83eb46c]
+- Updated dependencies [31e18e8]
+- Updated dependencies [83eb46c]
+  - @verdaccio/store@9.0.0-next-9.34
+  - @verdaccio/core@9.0.0-next-9.34
+  - @verdaccio/auth@9.0.0-next-9.34
+  - @verdaccio/config@9.0.0-next-9.34
+  - @verdaccio/hooks@9.0.0-next-9.34
+  - @verdaccio/logger@9.0.0-next-9.34
+  - @verdaccio/middleware@9.0.0-next-9.34
+
+## 9.0.0-next-9.33
+
+### Patch Changes
+
+- Updated dependencies [ed518e8]
+- Updated dependencies [950fd9f]
+- Updated dependencies [73c78e3]
+  - @verdaccio/store@9.0.0-next-9.33
+  - @verdaccio/middleware@9.0.0-next-9.33
+  - @verdaccio/config@9.0.0-next-9.33
+  - @verdaccio/logger@9.0.0-next-9.33
+  - @verdaccio/auth@9.0.0-next-9.33
+  - @verdaccio/hooks@9.0.0-next-9.33
+  - @verdaccio/core@9.0.0-next-9.33
+
+## 9.0.0-next-9.32
+
+### Patch Changes
+
+- 6e49543: Return the Search v1 response `time` as an ISO 8601 UTC timestamp with millisecond precision, such as `2026-09-21T10:20:30.123Z`, instead of a textual GMT date.
+  
+  The timestamp represents when Verdaccio prepares the completed search response, including empty pages and results from local packages or uplinks. Package publication dates are unchanged.
+  
+  Clients that parse the previous textual GMT representation should accept the ISO 8601 `time` value.
+- b27212f: Fix the registry process crashing during concurrent tarball downloads.
+  
+  The tarball size was emitted through an async `fstat` racing the first data
+  chunk — two unordered parallel I/O completions. When the chunk won (roughly 1
+  in 2000 requests under concurrent load), the response headers were already
+  flushed and setting `Content-Length` threw an uncaught `ERR_HTTP_HEADERS_SENT`
+  that killed the whole process. Verdaccio 6.x was immune because its legacy
+  storage only started piping data from inside the `fstat` callback; the 9.x
+  streams refactor silently lost that ordering guarantee.
+  
+  Fixed on three layers: `local-storage` now emits the size synchronously on
+  `open` (restoring size-before-data ordering), the API skips the header once
+  headers are sent instead of throwing, and the unguarded `await pipeline(...)`
+  calls in the store's tarball read/write paths log a warning instead of taking
+  the process down through an unhandled rejection on mid-stream failures. A
+  failed upload no longer records the tarball in the manifest `_attachments`.
+- 73415bb: Fix Search v1 pagination by collecting bounded uplink pages from offset zero and applying the client offset once, after deduplication and access checks. Keep result ordering stable across uplink rounds, fetch additional candidates when needed, and cancel work on disconnect or after 30 seconds. Skip uplinks that fail before contributing any results so local and healthy-uplink searches remain available. Return 503 when an uplink fails after contributing a page, stops advancing, or the shared budget of 100 requests / 25,000 candidates is exhausted instead of returning an incomplete successful page.
+- Updated dependencies [107c4d3]
+- Updated dependencies [34cd0fb]
+- Updated dependencies [59f1350]
+- Updated dependencies [f3f8976]
+- Updated dependencies [89a7362]
+- Updated dependencies [3618123]
+- Updated dependencies [b27212f]
+- Updated dependencies [cbfcfd2]
+- Updated dependencies [a4e2da0]
+- Updated dependencies [73415bb]
+- Updated dependencies [107c4d3]
+  - @verdaccio/logger@9.0.0-next-9.32
+  - @verdaccio/config@9.0.0-next-9.32
+  - @verdaccio/core@9.0.0-next-9.32
+  - @verdaccio/store@9.0.0-next-9.32
+  - @verdaccio/auth@9.0.0-next-9.32
+  - @verdaccio/hooks@9.0.0-next-9.32
+  - @verdaccio/middleware@9.0.0-next-9.32
+
+## 9.0.0-next-9.31
+
+### Patch Changes
+
+- 7054084: fix: tarball download reliability — uplink selection, no client hangs, content-length, npmjs parity
+  
+  - **store**: tarballs with a missing `_distfiles` record no longer 404 forever —
+    `lookupDistFile` falls back to the version's own dist metadata (conventional
+    `<name>-<version>.tgz` fast path, then a full scan that also resolves
+    bare-digest tarball urls). The uplink for a tarball is now the one that
+    actually serves it (recorded on the distfile, or matched by url on a path
+    segment boundary) instead of the last configured match, so credentials of an
+    unrelated uplink are never sent to it.
+  - **api/middleware**: when a tarball stream fails after the response headers
+    were already sent (eg. the uplink dropped the connection mid-download), the
+    response is destroyed so the client sees the failure immediately instead of
+    hanging forever; when it fails before headers are sent, the error body is
+    served as JSON like registry.npmjs.org.
+  - **proxy**: the got retry limit is no longer derived from `max_fails` (the
+    circuit-breaker threshold) — a high `max_fails` multiplied every uplink
+    timeout, so a slow uplink could block requests almost indefinitely. Retries
+    have their own `retry` uplink setting (default 2, matching got).
+  - **store**: the abbreviated manifest (`application/vnd.npm.install-v1+json`)
+    no longer includes `readme`, `readmeFilename`, `_id` and `_rev`, matching
+    the npm registry contract.
+  - **store/server**: tarball responses now carry a `Content-Length` header (the
+    `content-length` event was swallowed by the stream wrapper) and are no
+    longer re-gzipped by the compression middleware for gzip-accepting clients —
+    npm and undici accept gzip by default, so every (already gzipped) `.tgz`
+    download paid CPU for nothing. JSON metadata responses stay compressed.
+  - **core**: the `application/octet-stream` constant no longer carries a
+    spurious `charset=utf-8`, matching registry.npmjs.org.
+- Updated dependencies [c2b5897]
+- Updated dependencies [68ab0d4]
+- Updated dependencies [c52b632]
+- Updated dependencies [7054084]
+- Updated dependencies [e3d3128]
+- Updated dependencies [cf15239]
+  - @verdaccio/core@9.0.0-next-9.31
+  - @verdaccio/store@9.0.0-next-9.31
+  - @verdaccio/middleware@9.0.0-next-9.31
+  - @verdaccio/auth@9.0.0-next-9.31
+  - @verdaccio/config@9.0.0-next-9.31
+  - @verdaccio/hooks@9.0.0-next-9.31
+  - @verdaccio/logger@9.0.0-next-9.31
+
+## 9.0.0-next-9.30
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.30
+- @verdaccio/config@9.0.0-next-9.30
+- @verdaccio/auth@9.0.0-next-9.30
+- @verdaccio/hooks@9.0.0-next-9.30
+- @verdaccio/logger@9.0.0-next-9.30
+- @verdaccio/middleware@9.0.0-next-9.30
+- @verdaccio/store@9.0.0-next-9.30
+
+## 9.0.0-next-9.29
+
+### Minor Changes
+
+- 30601b3: feat: staged publishing (`npm stage`) behind the `stage` flag
+
+  Adds the `/-/stage` endpoints so a package version can be uploaded for review and
+  only becomes installable once a maintainer approves it. Everything is gated by
+  the new `stage` feature flag, which defaults to `false`.
+
+  ```yaml
+  flags:
+    stage: true
+  ```
+
+  The whole `npm stage` family is supported — `publish`, `list`, `view`,
+  `download`, `approve` and `reject` — verified end to end against npm 11.17.
+  Staging never asks for a one-time password: deferring proof of presence to
+  approval time is the point of the flow, which lets a pipeline prepare a release
+  that a human approves later.
+
+  Package access gains a `stage` entry deciding who may submit a version for
+  review:
+
+  ```yaml
+  packages:
+    "my-company-*":
+      access: $authenticated
+      stage: developers
+      publish: release-managers
+  ```
+
+  It falls back to `publish` when omitted, exactly as `unpublish` already does, so
+  existing configurations are unaffected. Granting it to a group that lacks
+  `publish` is what turns review into a real gate: those users can propose a
+  release but neither publish one directly nor approve their own submission, though
+  they can always withdraw it. Auth plugins can implement `allow_stage`; returning
+  `undefined` defers to `allow_publish`.
+
+  Staging fires a notification with `publishType: 'stage'` and rejecting fires
+  `unstage`, so a staged version no longer waits unnoticed until somebody runs
+  `npm stage list`. Approving keeps reporting `publish`, because that is what it
+  does.
+
+  Staged items are persisted through the storage plugin interface, so any storage
+  plugin works unchanged, and the namespace is never registered in the plugin
+  database — staged versions stay out of search and the package list.
+
+  The web UI gains a "Staged packages" view (list, detail, approve, reject,
+  download) that appears only while the flag is on.
+
+- 30601b3: feat: two-factor authentication (TOTP) behind the `tfa` flag
+
+  Adds time-based one-time passwords, gated by the new `tfa` feature flag, which
+  defaults to `false`.
+
+  ```yaml
+  flags:
+    tfa: true
+  ```
+
+  Users enrol with the standard `npm profile enable-2fa`, in either `auth-only`
+  mode (logins and token creation) or `auth-and-writes` (those plus publishing,
+  unpublishing, dist-tag changes and `npm stage approve`/`reject`). Enabling,
+  disabling and switching mode all re-check the account password, so holding a
+  token is not enough to remove somebody's second factor.
+
+  The challenge answers `401` with `WWW-Authenticate: otp`, which is the only shape
+  npm and Yarn recognise — anything else, including the `Bearer` that every other
+  401 carries, is read as a plain authentication failure and never retried.
+  Verified against npm 11.17 and Yarn 4.18.
+
+  Six digits are trivially brute-forceable, so failed verifications are counted and
+  the account is locked out for five minutes after five of them. Recovery codes are
+  hashed and consumed on first use.
+
+  Secrets, recovery codes and lockout state live in the storage plugin's token
+  store, encrypted at rest with the server secret, so any plugin implementing the
+  token interface works unchanged. With the flag on, a plugin that does not now
+  fails at startup rather than answering `503` on every write.
+
+  Two ways the token APIs would have exposed that state are closed: the row is no
+  longer listed by `GET /-/npm/v1/tokens`, and `DELETE
+/-/npm/v1/tokens/token/:tokenKey` refuses to remove it, which would otherwise
+  have switched two-factor off without the password and one-time password that
+  `npm profile disable-2fa` requires.
+
+  Rotating the server secret makes existing records undecryptable. Rather than
+  reading that as "this user has no two-factor" and silently dropping everybody's
+  protection, it raises and names the likely cause.
+
+### Patch Changes
+
+- 30601b3: fix: prove presence before two-factor can be switched off
+
+  Three problems found while reviewing the staged publishing and two-factor work.
+
+  Turning two-factor off only re-checked the account password. A password is
+  exactly what an attacker holding a stolen session already has, so the second
+  factor could be removed without ever proving presence — the one thing it exists
+  to require. `POST /-/npm/v1/user` now answers the standard `401` challenge when
+  two-factor is already active, which is what `otplease` in the npm CLI expects, so
+  `npm profile disable-2fa` and mode switches keep working unchanged. Enrolment is
+  untouched: the challenge stays quiet while a record is pending, so the three
+  steps of `npm profile enable-2fa` still run without a code.
+
+  Staging a tarball waited for the write stream to emit `open` before piping into
+  it. The storage plugin interface only promises a Writable, and the event is a
+  detail of the two bundled plugins, so a plugin that never emits it would have
+  hung staging forever with nothing written. The payload is now piped straight
+  away, which is correct either way because a stream that is not ready yet buffers
+  the writes.
+
+  Approving a staged version created an abort signal but never fired it when the
+  client disconnected, unlike the two sibling routes in the same file, so reading
+  the staged tarball carried on after the caller had gone.
+
+- Updated dependencies [30601b3]
+- Updated dependencies [30601b3]
+- Updated dependencies [30601b3]
+- Updated dependencies [30601b3]
+  - @verdaccio/core@9.0.0-next-9.29
+  - @verdaccio/config@9.0.0-next-9.29
+  - @verdaccio/middleware@9.0.0-next-9.29
+  - @verdaccio/auth@9.0.0-next-9.29
+  - @verdaccio/store@9.0.0-next-9.29
+  - @verdaccio/hooks@9.0.0-next-9.29
+  - @verdaccio/logger@9.0.0-next-9.29
+
+## 9.0.0-next-9.28
+
+### Patch Changes
+
+- 5a31242: fix(api): user name in login message
+- Updated dependencies [dd4f91c]
+  - @verdaccio/core@9.0.0-next-9.28
+  - @verdaccio/auth@9.0.0-next-9.28
+  - @verdaccio/config@9.0.0-next-9.28
+  - @verdaccio/hooks@9.0.0-next-9.28
+  - @verdaccio/logger@9.0.0-next-9.28
+  - @verdaccio/middleware@9.0.0-next-9.28
+  - @verdaccio/store@9.0.0-next-9.28
+
+## 9.0.0-next-9.27
+
+### Major Changes
+
+- 8857b15: Remove support for incoming HTTP Basic authentication. Verdaccio now accepts Bearer tokens for API authentication and advertises only `Bearer` in `WWW-Authenticate` responses.
+
+  Web UI session tokens are accepted as Bearer authentication for package API requests, so the same package access rules apply to Web UI and package manager clients.
+
+### Patch Changes
+
+- Updated dependencies [8857b15]
+  - @verdaccio/auth@9.0.0-next-9.27
+  - @verdaccio/middleware@9.0.0-next-9.27
+  - @verdaccio/hooks@9.0.0-next-9.27
+  - @verdaccio/store@9.0.0-next-9.27
+  - @verdaccio/core@9.0.0-next-9.27
+  - @verdaccio/config@9.0.0-next-9.27
+  - @verdaccio/logger@9.0.0-next-9.27
+
+## 9.0.0-next-9.26
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.26
+- @verdaccio/config@9.0.0-next-9.26
+- @verdaccio/auth@9.0.0-next-9.26
+- @verdaccio/hooks@9.0.0-next-9.26
+- @verdaccio/logger@9.0.0-next-9.26
+- @verdaccio/middleware@9.0.0-next-9.26
+- @verdaccio/store@9.0.0-next-9.26
+
+## 9.0.0-next-9.25
+
+### Patch Changes
+
+- Updated dependencies [4861978]
+- Updated dependencies [d7937a3]
+- Updated dependencies [d7937a3]
+- Updated dependencies [7a4c68d]
+  - @verdaccio/auth@9.0.0-next-9.25
+  - @verdaccio/config@9.0.0-next-9.25
+  - @verdaccio/middleware@9.0.0-next-9.25
+  - @verdaccio/hooks@9.0.0-next-9.25
+  - @verdaccio/store@9.0.0-next-9.25
+  - @verdaccio/core@9.0.0-next-9.25
+  - @verdaccio/logger@9.0.0-next-9.25
+
+## 9.0.0-next-9.24
+
+### Patch Changes
+
+- @verdaccio/store@9.0.0-next-9.24
+- @verdaccio/core@9.0.0-next-9.24
+- @verdaccio/config@9.0.0-next-9.24
+- @verdaccio/auth@9.0.0-next-9.24
+- @verdaccio/hooks@9.0.0-next-9.24
+- @verdaccio/logger@9.0.0-next-9.24
+- @verdaccio/middleware@9.0.0-next-9.24
+
+## 9.0.0-next-9.23
+
+### Patch Changes
+
+- Updated dependencies [5ec045c]
+  - @verdaccio/core@9.0.0-next-9.23
+  - @verdaccio/auth@9.0.0-next-9.23
+  - @verdaccio/config@9.0.0-next-9.23
+  - @verdaccio/hooks@9.0.0-next-9.23
+  - @verdaccio/logger@9.0.0-next-9.23
+  - @verdaccio/middleware@9.0.0-next-9.23
+  - @verdaccio/store@9.0.0-next-9.23
+
+## 9.0.0-next-9.22
+
+### Patch Changes
+
+- c499c4e: fix: refactor parsing of req.params
+- Updated dependencies [6795216]
+- Updated dependencies [d3b0352]
+- Updated dependencies [3574350]
+- Updated dependencies [c499c4e]
+  - @verdaccio/config@9.0.0-next-9.22
+  - @verdaccio/logger@9.0.0-next-9.22
+  - @verdaccio/store@9.0.0-next-9.22
+  - @verdaccio/middleware@9.0.0-next-9.22
+  - @verdaccio/core@9.0.0-next-9.22
+  - @verdaccio/auth@9.0.0-next-9.22
+  - @verdaccio/hooks@9.0.0-next-9.22
+
+## 9.0.0-next-9.21
+
+### Patch Changes
+
+- 51d49f0: fix: rate limit and bound the npm search v1 endpoint
+
+  The `/-/v1/search` endpoint now applies the `userRateLimit` rate limiting middleware (matching the login, token and profile endpoints), clamps the `size` (max 250, like the public npm registry) and `from` (max 10000) pagination parameters, and stops evaluating package access as soon as the requested page is filled instead of running an auth check over the entire result set. The clamped values are also what gets forwarded to storage plugins and uplink registries (the raw request URL and query are no longer passed through), so the bounds hold end-to-end. This prevents cheap anonymous requests from triggering unbounded full-catalog scans. As part of this, the previously broken `size`/`from` query parsing (which always fell back to the defaults) now works, so search pagination is honored.
+
+- Updated dependencies [51d49f0]
+- Updated dependencies [3649cb0]
+- Updated dependencies [5aa8cca]
+  - @verdaccio/store@9.0.0-next-9.21
+  - @verdaccio/middleware@9.0.0-next-9.21
+  - @verdaccio/core@9.0.0-next-9.21
+  - @verdaccio/auth@9.0.0-next-9.21
+  - @verdaccio/config@9.0.0-next-9.21
+  - @verdaccio/hooks@9.0.0-next-9.21
+  - @verdaccio/logger@9.0.0-next-9.21
+
+## 9.0.0-next-9.20
+
+### Patch Changes
+
+- fde2f1b: fix(hooks): minor build errors
+- Updated dependencies [fde2f1b]
+- Updated dependencies [506e965]
+- Updated dependencies [dee3b5d]
+- Updated dependencies [7078d03]
+  - @verdaccio/hooks@9.0.0-next-9.20
+  - @verdaccio/store@9.0.0-next-9.20
+  - @verdaccio/middleware@9.0.0-next-9.20
+  - @verdaccio/auth@9.0.0-next-9.20
+  - @verdaccio/core@9.0.0-next-9.20
+  - @verdaccio/logger@9.0.0-next-9.20
+  - @verdaccio/config@9.0.0-next-9.20
+
+## 9.0.0-next-9.19
+
+### Major Changes
+
+- 5215c94: Remove star/unstar support
+
+  The `npm star`/`npm unstar` feature has been removed. This drops the
+  `/-/_view/starredByUser` listing endpoint, the metadata-based star/unstar
+  handling in the publish flow (`storage.star()` and the `users` payload
+  branch in `updateManifest`), the `StarManifestBody` type, and the
+  `STARS_API_ENDPOINTS` middleware constant.
+
+### Patch Changes
+
+- bc010e0: feat: add publish/unpublish hooks
+- 47f122f: chore(deps): clean-up unused and duplicates
+- Updated dependencies [bc010e0]
+- Updated dependencies [47f122f]
+- Updated dependencies [5215c94]
+  - @verdaccio/hooks@9.0.0-next-9.19
+  - @verdaccio/middleware@9.0.0-next-9.19
+  - @verdaccio/core@9.0.0-next-9.19
+  - @verdaccio/config@9.0.0-next-9.19
+  - @verdaccio/logger@9.0.0-next-9.19
+  - @verdaccio/store@9.0.0-next-9.19
+  - @verdaccio/auth@9.0.0-next-9.19
+
+## 9.0.0-next-9.18
+
+### Patch Changes
+
+- 62ebd31: fix: enforce generated npm token metadata
+
+  Generated npm tokens (`POST /-/npm/v1/tokens`) stored their `readonly` and
+  `cidr_whitelist` restrictions but never enforced them, and deleting a token did
+  not revoke it for the package APIs. A token marked read-only or pinned to a CIDR
+  range could still publish packages and change dist-tags, and a deleted token
+  remained usable.
+
+  Generated tokens now embed a server-issued key (in the JWT claim, or in the
+  encrypted legacy AES payload), and a new `enforceGeneratedTokenMetadata`
+  middleware looks that key up on each request and rejects the token when it is
+  missing/revoked, used outside its CIDR whitelist, or used for a write while
+  read-only. Enforcement applies to both AES and JWT API-token modes.
+
+  Note: tokens issued before upgrading carry no key and are not retroactively
+  constrained — regenerate them to apply the restrictions. Web UI enforcement of
+  generated-token metadata is tracked as a follow-up.
+
+- 80b8fa4: fix: run jwt middleware before middleware plugins
+- Updated dependencies [62ebd31]
+- Updated dependencies [e8421bd]
+- Updated dependencies [d9203d0]
+- Updated dependencies [24c86d6]
+- Updated dependencies [73c78e3]
+  - @verdaccio/middleware@9.0.0-next-9.18
+  - @verdaccio/auth@9.0.0-next-9.18
+  - @verdaccio/core@9.0.0-next-9.18
+  - @verdaccio/store@9.0.0-next-9.18
+  - @verdaccio/logger@9.0.0-next-9.18
+  - @verdaccio/config@9.0.0-next-9.18
+
+## 9.0.0-next-9.17
+
+### Patch Changes
+
+- 6408a85: chore: force release
+- Updated dependencies [6408a85]
+  - @verdaccio/auth@9.0.0-next-9.17
+  - @verdaccio/config@9.0.0-next-9.17
+  - @verdaccio/core@9.0.0-next-9.17
+  - @verdaccio/logger@9.0.0-next-9.17
+  - @verdaccio/middleware@9.0.0-next-9.17
+  - @verdaccio/store@9.0.0-next-9.17
+
+## 9.0.0-next-9.16
+
+### Patch Changes
+
+- Updated dependencies [66f7e61]
+- Updated dependencies [cdf3150]
+  - @verdaccio/middleware@9.0.0-next-9.16
+  - @verdaccio/core@9.0.0-next-9.16
+  - @verdaccio/config@9.0.0-next-9.16
+  - @verdaccio/logger@9.0.0-next-9.16
+  - @verdaccio/store@9.0.0-next-9.16
+  - @verdaccio/auth@9.0.0-next-9.16
+
+## 9.0.0-next-9.15
+
+### Patch Changes
+
+- Updated dependencies [75caa33]
+- Updated dependencies [3299cc7]
+- Updated dependencies [ea8beb2]
+  - @verdaccio/config@9.0.0-next-9.15
+  - @verdaccio/auth@9.0.0-next-9.15
+  - @verdaccio/middleware@9.0.0-next-9.15
+  - @verdaccio/store@9.0.0-next-9.15
+  - @verdaccio/core@9.0.0-next-9.15
+  - @verdaccio/logger@9.0.0-next-9.15
+
+## 9.0.0-next-9.14
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.14
+- @verdaccio/config@9.0.0-next-9.14
+- @verdaccio/auth@9.0.0-next-9.14
+- @verdaccio/logger@9.0.0-next-9.14
+- @verdaccio/middleware@9.0.0-next-9.14
+- @verdaccio/store@9.0.0-next-9.14
+
+## 9.0.0-next-9.13
+
+### Patch Changes
+
+- Updated dependencies [8feba94]
+- Updated dependencies [39c369e]
+  - @verdaccio/store@9.0.0-next-9.13
+  - @verdaccio/core@9.0.0-next-9.13
+  - @verdaccio/auth@9.0.0-next-9.13
+  - @verdaccio/config@9.0.0-next-9.13
+  - @verdaccio/logger@9.0.0-next-9.13
+  - @verdaccio/middleware@9.0.0-next-9.13
+
+## 9.0.0-next-9.12
+
+### Patch Changes
+
+- Updated dependencies [64c904a]
+  - @verdaccio/config@9.0.0-next-9.12
+  - @verdaccio/auth@9.0.0-next-9.12
+  - @verdaccio/middleware@9.0.0-next-9.12
+  - @verdaccio/store@9.0.0-next-9.12
+  - @verdaccio/core@9.0.0-next-9.12
+  - @verdaccio/logger@9.0.0-next-9.12
+
+## 9.0.0-next-9.11
+
+### Patch Changes
+
+- Updated dependencies [96cb0c4]
+- Updated dependencies [877329a]
+  - @verdaccio/config@9.0.0-next-9.11
+  - @verdaccio/store@9.0.0-next-9.11
+  - @verdaccio/auth@9.0.0-next-9.11
+  - @verdaccio/middleware@9.0.0-next-9.11
+  - @verdaccio/core@9.0.0-next-9.11
+  - @verdaccio/logger@9.0.0-next-9.11
+
+## 9.0.0-next-9.10
+
+### Patch Changes
+
+- ba70ae0: fix: memory leak in search
+- Updated dependencies [747d6ab]
+- Updated dependencies [7590fb5]
+  - @verdaccio/config@9.0.0-next-9.10
+  - @verdaccio/store@9.0.0-next-9.10
+  - @verdaccio/auth@9.0.0-next-9.10
+  - @verdaccio/middleware@9.0.0-next-9.10
+  - @verdaccio/core@9.0.0-next-9.10
+  - @verdaccio/logger@9.0.0-next-9.10
+
+## 9.0.0-next-9.9
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.9
+- @verdaccio/config@9.0.0-next-9.9
+- @verdaccio/auth@9.0.0-next-9.9
+- @verdaccio/logger@9.0.0-next-9.9
+- @verdaccio/middleware@9.0.0-next-9.9
+- @verdaccio/store@9.0.0-next-9.9
+
+## 9.0.0-next-9.8
+
+### Patch Changes
+
+- d68a86d: refactor: migrate from lodash to lodash-es and replace simple utilities with native JS
+- Updated dependencies [d68a86d]
+  - @verdaccio/config@9.0.0-next-9.8
+  - @verdaccio/auth@9.0.0-next-9.8
+  - @verdaccio/store@9.0.0-next-9.8
+  - @verdaccio/middleware@9.0.0-next-9.8
+  - @verdaccio/core@9.0.0-next-9.8
+  - @verdaccio/logger@9.0.0-next-9.8
+
+## 9.0.0-next-9.7
+
+### Patch Changes
+
+- Updated dependencies [f2e488d]
+  - @verdaccio/auth@9.0.0-next-9.7
+  - @verdaccio/config@9.0.0-next-9.7
+  - @verdaccio/middleware@9.0.0-next-9.7
+  - @verdaccio/store@9.0.0-next-9.7
+  - @verdaccio/core@9.0.0-next-9.7
+  - @verdaccio/logger@9.0.0-next-9.7
+
+## 9.0.0-next-9.6
+
+### Patch Changes
+
+- 1905990: chore(middleware): move ui-options to external script
+- Updated dependencies [8fb8763]
+- Updated dependencies [1905990]
+  - @verdaccio/store@9.0.0-next-9.6
+  - @verdaccio/middleware@9.0.0-next-9.6
+  - @verdaccio/core@9.0.0-next-9.6
+  - @verdaccio/auth@9.0.0-next-9.6
+  - @verdaccio/config@9.0.0-next-9.6
+  - @verdaccio/logger@9.0.0-next-9.6
+
+## 9.0.0-next-9.5
+
+### Patch Changes
+
+- 6b55816: fix(middleware): stream is not readable (http 500)
+- fd09d4f: chore: update vitest to 4.1.0 and @vitest/coverage-v8 to 4.1.0
+- Updated dependencies [4eda7ac]
+- Updated dependencies [8f9bcc8]
+- Updated dependencies [a9d7b4a]
+- Updated dependencies [6b55816]
+- Updated dependencies [1d5462f]
+- Updated dependencies [fd09d4f]
+  - @verdaccio/logger@9.0.0-next-9.5
+  - @verdaccio/core@9.0.0-next-9.5
+  - @verdaccio/config@9.0.0-next-9.5
+  - @verdaccio/auth@9.0.0-next-9.5
+  - @verdaccio/store@9.0.0-next-9.5
+  - @verdaccio/middleware@9.0.0-next-9.5
+
+## 9.0.0-next-9.4
+
+### Major Changes
+
+- 52a6520: Replace Babel and esbuild build pipeline with Vite 8 across all packages. All packages now output dual ESM (.mjs) and CJS (.js) formats with TypeScript declarations generated via vite-plugin-dts. Includes shared build config at vite.lib.config.mjs, proper exports field in all package.json files, and fixes for type-only re-exports required by Rollup's stricter module analysis.
+
+### Patch Changes
+
+- Updated dependencies [52a6520]
+  - @verdaccio/auth@9.0.0-next-9.4
+  - @verdaccio/config@9.0.0-next-9.4
+  - @verdaccio/core@9.0.0-next-9.4
+  - @verdaccio/logger@9.0.0-next-9.4
+  - @verdaccio/middleware@9.0.0-next-9.4
+  - @verdaccio/store@9.0.0-next-9.4
+
+## 9.0.0-next-9.3
+
+### Patch Changes
+
+- Updated dependencies [66e7538]
+- Updated dependencies [d9e5adf]
+  - @verdaccio/middleware@9.0.0-next-9.3
+  - @verdaccio/config@9.0.0-next-9.3
+  - @verdaccio/auth@9.0.0-next-9.3
+  - @verdaccio/store@9.0.0-next-9.3
+  - @verdaccio/core@9.0.0-next-9.3
+  - @verdaccio/logger@9.0.0-next-9.3
+
+## 9.0.0-next-9.2
+
+### Patch Changes
+
+- Updated dependencies [325c584]
+  - @verdaccio/middleware@9.0.0-next-9.2
+  - @verdaccio/auth@9.0.0-next-9.2
+  - @verdaccio/store@9.0.0-next-9.2
+  - @verdaccio/core@9.0.0-next-9.2
+  - @verdaccio/config@9.0.0-next-9.2
+  - @verdaccio/logger@9.0.0-next-9.2
+
+## 9.0.0-next-9.1
+
+### Major Changes
+
+- dd9bad3: feat: upgrade to express v5
+
+### Patch Changes
+
+- Updated dependencies [dd9bad3]
+  - @verdaccio/middleware@9.0.0-next-9.1
+  - @verdaccio/core@9.0.0-next-9.1
+  - @verdaccio/auth@9.0.0-next-9.1
+  - @verdaccio/store@9.0.0-next-9.1
+  - @verdaccio/config@9.0.0-next-9.1
+  - @verdaccio/logger@9.0.0-next-9.1
+
+## 9.0.0-next-9.0
+
+### Major Changes
+
+- 7f80af5: chore: bump package
+
+### Patch Changes
+
+- Updated dependencies [7f80af5]
+- Updated dependencies [34da6e6]
+  - @verdaccio/auth@9.0.0-next-9.0
+  - @verdaccio/config@9.0.0-next-9.0
+  - @verdaccio/core@9.0.0-next-9.0
+  - @verdaccio/logger@9.0.0-next-9.0
+  - @verdaccio/middleware@9.0.0-next-9.0
+  - @verdaccio/store@9.0.0-next-9.0
+
+## 8.1.0-next-8.31
+
+### Minor Changes
+
+- b5eccfc: feat: remove rematch refactor ui
+
+### Patch Changes
+
+- 01f7ca6: fix(api): remove unnecessary allow check
+- 95fc87c: refactor: handling of request options
+- Updated dependencies [17842bd]
+- Updated dependencies [b5eccfc]
+- Updated dependencies [dabb1d5]
+- Updated dependencies [6705d30]
+- Updated dependencies [3243194]
+- Updated dependencies [95fc87c]
+  - @verdaccio/auth@8.0.0-next-8.31
+  - @verdaccio/config@8.0.0-next-8.31
+  - @verdaccio/store@8.0.0-next-8.31
+  - @verdaccio/middleware@8.0.0-next-8.31
+  - @verdaccio/core@8.0.0-next-8.31
+  - @verdaccio/logger@8.0.0-next-8.31
+
+## 8.1.0-next-8.30
+
+### Patch Changes
+
+- Updated dependencies [0a6c53c]
+  - @verdaccio/auth@8.0.0-next-8.30
+  - @verdaccio/store@8.0.0-next-8.30
+  - @verdaccio/core@8.0.0-next-8.30
+  - @verdaccio/config@8.0.0-next-8.30
+  - @verdaccio/middleware@8.0.0-next-8.30
+  - @verdaccio/logger@8.0.0-next-8.30
+
+## 8.1.0-next-8.29
+
+### Patch Changes
+
+- Updated dependencies [4edcae8]
+- Updated dependencies [f200baa]
+- Updated dependencies [184632c]
+- Updated dependencies [5efe84f]
+  - @verdaccio/core@8.0.0-next-8.29
+  - @verdaccio/middleware@8.0.0-next-8.29
+  - @verdaccio/auth@8.0.0-next-8.29
+  - @verdaccio/config@8.0.0-next-8.29
+  - @verdaccio/store@8.0.0-next-8.29
+  - @verdaccio/logger@8.0.0-next-8.29
+
+## 8.1.0-next-8.28
+
+### Patch Changes
+
+- 377f38d: fix(middleware): dist-tags with scoped packages
+- Updated dependencies [377f38d]
+  - @verdaccio/middleware@8.0.0-next-8.28
+  - @verdaccio/auth@8.0.0-next-8.28
+  - @verdaccio/store@8.0.0-next-8.28
+  - @verdaccio/core@8.0.0-next-8.28
+  - @verdaccio/config@8.0.0-next-8.28
+  - @verdaccio/logger@8.0.0-next-8.28
+
+## 8.1.0-next-8.27
+
+### Patch Changes
+
+- Updated dependencies [ab8fccd]
+- Updated dependencies [d028ce1]
+  - @verdaccio/auth@8.0.0-next-8.27
+  - @verdaccio/config@8.0.0-next-8.27
+  - @verdaccio/core@8.0.0-next-8.27
+  - @verdaccio/logger@8.0.0-next-8.27
+  - @verdaccio/middleware@8.0.0-next-8.27
+  - @verdaccio/store@8.0.0-next-8.27
+
+## 8.1.0-next-8.26
+
+### Patch Changes
+
+- Updated dependencies [5d6bad3]
+- Updated dependencies [1b9bf90]
+- Updated dependencies [0321120]
+  - @verdaccio/middleware@8.0.0-next-8.26
+  - @verdaccio/store@8.0.0-next-8.26
+  - @verdaccio/auth@8.0.0-next-8.26
+  - @verdaccio/config@8.0.0-next-8.26
+  - @verdaccio/core@8.0.0-next-8.26
+  - @verdaccio/logger@8.0.0-next-8.26
+
+## 8.1.0-next-8.25
+
+### Patch Changes
+
+- 3aff890: chore(deps): api, auth, cli, config, url
+- ab3bf4a: chore: replace mime package with constants
+- b24f513: chore(lint): switch rules from jest to vitest
+- Updated dependencies [3aff890]
+- Updated dependencies [ab3bf4a]
+- Updated dependencies [b24f513]
+  - @verdaccio/config@8.0.0-next-8.25
+  - @verdaccio/auth@8.0.0-next-8.25
+  - @verdaccio/middleware@8.0.0-next-8.25
+  - @verdaccio/store@8.0.0-next-8.25
+  - @verdaccio/core@8.0.0-next-8.25
+  - @verdaccio/logger@8.0.0-next-8.25
+
+## 8.1.0-next-8.24
+
+### Patch Changes
+
+- Updated dependencies [71587f3]
+  - @verdaccio/store@8.0.0-next-8.24
+  - @verdaccio/core@8.0.0-next-8.24
+  - @verdaccio/config@8.0.0-next-8.24
+  - @verdaccio/auth@8.0.0-next-8.24
+  - @verdaccio/middleware@8.0.0-next-8.24
+  - @verdaccio/logger@8.0.0-next-8.24
+
+## 8.1.0-next-8.23
+
+### Patch Changes
+
+- 5c499fa: chore: publish @verdaccio/test-helper
+- Updated dependencies [b671a38]
+  - @verdaccio/config@8.0.0-next-8.23
+  - @verdaccio/store@8.0.0-next-8.23
+  - @verdaccio/auth@8.0.0-next-8.23
+  - @verdaccio/middleware@8.0.0-next-8.23
+  - @verdaccio/core@8.0.0-next-8.23
+  - @verdaccio/logger@8.0.0-next-8.23
+
+## 8.1.0-next-8.22
+
+### Patch Changes
+
+- Updated dependencies [67e667b]
+- Updated dependencies [60ef8ff]
+- Updated dependencies [05f03b3]
+  - @verdaccio/core@8.0.0-next-8.22
+  - @verdaccio/config@8.0.0-next-8.22
+  - @verdaccio/store@8.0.0-next-8.22
+  - @verdaccio/auth@8.0.0-next-8.22
+  - @verdaccio/middleware@8.0.0-next-8.22
+  - @verdaccio/logger@8.0.0-next-8.22
+
+## 8.1.0-next-8.21
+
+### Patch Changes
+
+- Updated dependencies [f8a321f]
+  - @verdaccio/core@8.0.0-next-8.21
+  - @verdaccio/auth@8.0.0-next-8.21
+  - @verdaccio/config@8.0.0-next-8.21
+  - @verdaccio/middleware@8.0.0-next-8.21
+  - @verdaccio/store@8.0.0-next-8.21
+  - @verdaccio/logger@8.0.0-next-8.21
+
+## 8.1.0-next-8.20
+
+### Patch Changes
+
+- 08e1b21: chore(deps): built-in node imports
+- Updated dependencies [08e1b21]
+- Updated dependencies [a1a73e9]
+- Updated dependencies [6a4d6dd]
+- Updated dependencies [73c0194]
+- Updated dependencies [5fef0b6]
+  - @verdaccio/middleware@8.0.0-next-8.20
+  - @verdaccio/config@8.0.0-next-8.20
+  - @verdaccio/store@8.0.0-next-8.20
+  - @verdaccio/auth@8.0.0-next-8.20
+  - @verdaccio/core@8.0.0-next-8.20
+  - @verdaccio/logger@8.0.0-next-8.20
+
+## 8.1.0-next-8.19
+
+### Patch Changes
+
+- a91c5b8: chore(api): remove obsolete tests
+- Updated dependencies [9350431]
+- Updated dependencies [da0692f]
+- Updated dependencies [3f71267]
+  - @verdaccio/core@8.0.0-next-8.19
+  - @verdaccio/middleware@8.0.0-next-8.19
+  - @verdaccio/store@8.0.0-next-8.19
+  - @verdaccio/auth@8.0.0-next-8.19
+  - @verdaccio/config@8.0.0-next-8.19
+  - @verdaccio/logger@8.0.0-next-8.19
+
+## 8.1.0-next-8.18
+
+### Patch Changes
+
+- @verdaccio/auth@8.0.0-next-8.18
+- @verdaccio/store@8.0.0-next-8.18
+- @verdaccio/core@8.0.0-next-8.18
+- @verdaccio/config@8.0.0-next-8.18
+- @verdaccio/middleware@8.0.0-next-8.18
+- @verdaccio/logger@8.0.0-next-8.18
+
+## 8.1.0-next-8.17
+
+### Patch Changes
+
+- Updated dependencies [96d2f0f]
+  - @verdaccio/core@8.0.0-next-8.17
+  - @verdaccio/auth@8.0.0-next-8.17
+  - @verdaccio/config@8.0.0-next-8.17
+  - @verdaccio/middleware@8.0.0-next-8.17
+  - @verdaccio/store@8.0.0-next-8.17
+  - @verdaccio/logger@8.0.0-next-8.17
+
+## 8.1.0-next-8.16
+
+### Patch Changes
+
+- 72c3cbb: chore(utils): replace @verdaccio/utils dependency with core
+- 626ae6a: feat: web v1 login backend (experimental)
+- b19ddca: fix(config): server settings
+- 5f036c0: fix(api): cidr whitelist for tokens
+- Updated dependencies [72c3cbb]
+- Updated dependencies [626ae6a]
+- Updated dependencies [d33266b]
+- Updated dependencies [9509b63]
+- Updated dependencies [626ae6a]
+- Updated dependencies [2fef671]
+- Updated dependencies [acb8a99]
+- Updated dependencies [b19ddca]
+- Updated dependencies [fdf44a6]
+- Updated dependencies [3ef4a49]
+  - @verdaccio/middleware@8.0.0-next-8.16
+  - @verdaccio/config@8.0.0-next-8.16
+  - @verdaccio/store@8.0.0-next-8.16
+  - @verdaccio/auth@8.0.0-next-8.16
+  - @verdaccio/core@8.0.0-next-8.16
+  - @verdaccio/logger@8.0.0-next-8.16
+
+## 8.1.0-next-8.15
+
+### Patch Changes
+
+- Updated dependencies [1f25d5f]
+  - @verdaccio/auth@8.0.0-next-8.15
+  - @verdaccio/core@8.0.0-next-8.15
+  - @verdaccio/config@8.0.0-next-8.15
+  - @verdaccio/middleware@8.0.0-next-8.15
+  - @verdaccio/store@8.0.0-next-8.15
+  - @verdaccio/utils@8.1.0-next-8.15
+  - @verdaccio/logger@8.0.0-next-8.15
+
+## 8.1.0-next-8.14
+
+### Patch Changes
+
+- 1e2f503: chore(api): avoid double registration of JSON bodyParser
+- b9fea38: chore: cleanup utils
+- Updated dependencies [b9fea38]
+- Updated dependencies [bb478f2]
+- Updated dependencies [2bcd3ca]
+- Updated dependencies [da1650c]
+- Updated dependencies [8f28186]
+  - @verdaccio/middleware@8.0.0-next-8.14
+  - @verdaccio/core@8.0.0-next-8.14
+  - @verdaccio/config@8.0.0-next-8.14
+  - @verdaccio/store@8.0.0-next-8.14
+  - @verdaccio/utils@8.1.0-next-8.14
+  - @verdaccio/auth@8.0.0-next-8.14
+  - @verdaccio/logger@8.0.0-next-8.14
+
+## 8.1.0-next-8.13
+
+### Patch Changes
+
+- e4a1539: chore: package.json maintenance
+- 0607e80: chore: update readme badges and license files
+- Updated dependencies [b3fa5df]
+- Updated dependencies [2eb8cc2]
+- Updated dependencies [e4a1539]
+- Updated dependencies [0607e80]
+  - @verdaccio/config@8.0.0-next-8.13
+  - @verdaccio/store@8.0.0-next-8.13
+  - @verdaccio/utils@8.1.0-next-8.13
+  - @verdaccio/core@8.0.0-next-8.13
+  - @verdaccio/logger@8.0.0-next-8.13
+  - @verdaccio/middleware@8.0.0-next-8.13
+  - @verdaccio/auth@8.0.0-next-8.13
+
+## 8.1.0-next-8.12
+
+### Patch Changes
+
+- Updated dependencies [95ac124]
+  - @verdaccio/core@8.0.0-next-8.12
+  - @verdaccio/store@8.0.0-next-8.12
+  - @verdaccio/auth@8.0.0-next-8.12
+  - @verdaccio/config@8.0.0-next-8.12
+  - @verdaccio/middleware@8.0.0-next-8.12
+  - @verdaccio/utils@8.1.0-next-8.12
+  - @verdaccio/logger@8.0.0-next-8.12
+
+## 8.1.0-next-8.11
+
+### Patch Changes
+
+- Updated dependencies [83dbde5]
+- Updated dependencies [4110873]
+- Updated dependencies [85e0e13]
+- Updated dependencies [7e48ac6]
+- Updated dependencies [66bc284]
+  - @verdaccio/store@8.0.0-next-8.11
+  - @verdaccio/middleware@8.0.0-next-8.11
+  - @verdaccio/utils@8.1.0-next-8.11
+  - @verdaccio/auth@8.0.0-next-8.11
+  - @verdaccio/config@8.0.0-next-8.11
+  - @verdaccio/core@8.0.0-next-8.11
+  - @verdaccio/logger@8.0.0-next-8.11
+
+## 8.1.0-next-8.10
+
+### Patch Changes
+
+- Updated dependencies [bf0e09a]
+  - @verdaccio/config@8.0.0-next-8.10
+  - @verdaccio/auth@8.0.0-next-8.10
+  - @verdaccio/middleware@8.0.0-next-8.10
+  - @verdaccio/store@8.0.0-next-8.10
+  - @verdaccio/core@8.0.0-next-8.10
+  - @verdaccio/utils@8.1.0-next-8.10
+  - @verdaccio/logger@8.0.0-next-8.10
+
+## 8.1.0-next-8.9
+
+### Patch Changes
+
+- Updated dependencies [96e0011]
+  - @verdaccio/middleware@8.0.0-next-8.9
+  - @verdaccio/auth@8.0.0-next-8.9
+  - @verdaccio/core@8.0.0-next-8.9
+  - @verdaccio/config@8.0.0-next-8.9
+  - @verdaccio/store@8.0.0-next-8.9
+  - @verdaccio/utils@8.1.0-next-8.9
+  - @verdaccio/logger@8.0.0-next-8.9
+
+## 8.1.0-next-8.8
+
+### Patch Changes
+
+- Updated dependencies [0588605]
+- Updated dependencies [ca91b9a]
+  - @verdaccio/config@8.0.0-next-8.8
+  - @verdaccio/auth@8.0.0-next-8.8
+  - @verdaccio/middleware@8.0.0-next-8.8
+  - @verdaccio/store@8.0.0-next-8.8
+  - @verdaccio/core@8.0.0-next-8.8
+  - @verdaccio/logger@8.0.0-next-8.8
+  - @verdaccio/utils@8.1.0-next-8.8
+
+## 8.1.0-next-8.7
+
+### Patch Changes
+
+- 139861e: fix: crashes with path-to-regexp v0.1.12 express
+- Updated dependencies [589ea7f]
+- Updated dependencies [139861e]
+  - @verdaccio/core@8.0.0-next-8.7
+  - @verdaccio/utils@8.1.0-next-8.7
+  - @verdaccio/middleware@8.0.0-next-8.7
+  - @verdaccio/store@8.0.0-next-8.7
+  - @verdaccio/auth@8.0.0-next-8.7
+  - @verdaccio/config@8.0.0-next-8.7
+  - @verdaccio/logger@8.0.0-next-8.7
+
+## 8.1.0-next-8.6
+
+### Patch Changes
+
+- Updated dependencies [8995041]
+  - @verdaccio/middleware@8.0.0-next-8.6
+  - @verdaccio/auth@8.0.0-next-8.6
+  - @verdaccio/core@8.0.0-next-8.6
+  - @verdaccio/config@8.0.0-next-8.6
+  - @verdaccio/store@8.0.0-next-8.6
+  - @verdaccio/utils@8.1.0-next-8.6
+  - @verdaccio/logger@8.0.0-next-8.6
+
+## 8.1.0-next-8.5
+
+### Patch Changes
+
+- eca6259: fix: E409 username is already registered (adduser)
+- 5cbee6f: fix: unpublish a package on storage package
+- 6e344d0: chore(api): fix void return for some tests
+- Updated dependencies [ba71932]
+- Updated dependencies [64a7fc0]
+- Updated dependencies [9041b0f]
+- Updated dependencies [eca6259]
+- Updated dependencies [4adaa83]
+- Updated dependencies [80e4cb8]
+- Updated dependencies [5cbee6f]
+- Updated dependencies [538bb8f]
+- Updated dependencies [a049bba]
+- Updated dependencies [3967a52]
+  - @verdaccio/config@8.0.0-next-8.5
+  - @verdaccio/core@8.0.0-next-8.5
+  - @verdaccio/store@8.0.0-next-8.5
+  - @verdaccio/auth@8.0.0-next-8.5
+  - @verdaccio/logger@8.0.0-next-8.5
+  - @verdaccio/middleware@8.0.0-next-8.5
+  - @verdaccio/utils@8.1.0-next-8.5
+
+## 8.1.0-next-8.4
+
+### Patch Changes
+
+- 58e0d95: fix(middleware): error 404 when getting scoped tarballs
+- e93d6a3: chore: auth package requires logger as parameter
+- Updated dependencies [48aa89f]
+- Updated dependencies [58e0d95]
+- Updated dependencies [1076a89]
+- Updated dependencies [e93d6a3]
+  - @verdaccio/middleware@8.0.0-next-8.4
+  - @verdaccio/core@8.0.0-next-8.4
+  - @verdaccio/auth@8.0.0-next-8.4
+  - @verdaccio/config@8.0.0-next-8.4
+  - @verdaccio/store@8.0.0-next-8.4
+  - @verdaccio/utils@8.1.0-next-8.4
+  - @verdaccio/logger@8.0.0-next-8.4
+
+## 8.1.0-next-8.3
+
+### Patch Changes
+
+- Updated dependencies [5731e88]
+- Updated dependencies [5bb81eb]
+- Updated dependencies [5cfbc14]
+  - @verdaccio/store@8.0.0-next-8.3
+  - @verdaccio/middleware@8.0.0-next-8.3
+  - @verdaccio/auth@8.0.0-next-8.3
+  - @verdaccio/core@8.0.0-next-8.3
+  - @verdaccio/config@8.0.0-next-8.3
+  - @verdaccio/utils@8.1.0-next-8.3
+  - @verdaccio/logger@8.0.0-next-8.3
+
+## 7.1.0-next-8.2
+
+### Minor Changes
+
+- 6a8154c: feat: update logger pino to latest
+
+### Patch Changes
+
+- Updated dependencies [e850690]
+- Updated dependencies [6a8154c]
+  - @verdaccio/middleware@8.0.0-next-8.2
+  - @verdaccio/auth@8.0.0-next-8.2
+  - @verdaccio/config@8.0.0-next-8.2
+  - @verdaccio/core@8.0.0-next-8.2
+  - @verdaccio/logger@8.0.0-next-8.2
+  - @verdaccio/store@8.0.0-next-8.2
+  - @verdaccio/utils@7.1.0-next-8.2
+
+## 7.0.1-next-8.1
+
+### Patch Changes
+
+- Updated dependencies [e5cc01e]
+  - @verdaccio/auth@8.0.0-next-8.1
+  - @verdaccio/core@8.0.0-next-8.1
+  - @verdaccio/config@8.0.0-next-8.1
+  - @verdaccio/middleware@8.0.0-next-8.1
+  - @verdaccio/store@8.0.0-next-8.1
+  - @verdaccio/utils@7.0.1-next-8.1
+  - @verdaccio/logger@8.0.0-next-8.1
+
+## 7.0.1-next-8.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @verdaccio/logger@8.0.0-next-8.0
+  - @verdaccio/middleware@8.0.0-next-8.0
+  - @verdaccio/core@8.0.0-next-8.0
+  - @verdaccio/config@8.0.0-next-8.0
+  - @verdaccio/store@8.0.0-next-8.0
+  - @verdaccio/auth@7.0.1-next-8.0
+  - @verdaccio/utils@7.0.1-next-8.0
+
+## 7.0.0
+
+### Major Changes
+
+- 47f61c6: feat!: bump to v7
+- e7ebccb: update major dependencies, remove old nodejs support
+
+### Minor Changes
+
+- f047cc8: refactor: auth with legacy sign support
+
+### Patch Changes
+
+- 6e764e3: feat: add support for npm owner
+- 74cd588: fix: bug on change password npm profile
+- 19df355: chore(api): update comment about route parameters
+- Updated dependencies [e5624e1]
+- Updated dependencies [47f61c6]
+- Updated dependencies [2a6ee33]
+- Updated dependencies [10dd81f]
+- Updated dependencies [5bfab62]
+- Updated dependencies [6c5f7a4]
+- Updated dependencies [6e764e3]
+- Updated dependencies [b0946b2]
+- Updated dependencies [ccc7bd1]
+- Updated dependencies [8c10a3e]
+- Updated dependencies [daceb6d]
+- Updated dependencies [e14b064]
+- Updated dependencies [e7ebccb]
+- Updated dependencies [c9962fe]
+- Updated dependencies [7400830]
+- Updated dependencies [f967a69]
+- Updated dependencies [de6ff5c]
+- Updated dependencies [f047cc8]
+- Updated dependencies [a99a4bb]
+- Updated dependencies [c807f0c]
+- Updated dependencies [a05a7d8]
+- Updated dependencies [7c9f3cf]
+- Updated dependencies [c31aec8]
+- Updated dependencies [bd8703e]
+- Updated dependencies [4dc62a8]
+- Updated dependencies [253cc13]
+- Updated dependencies [4d96324]
+  - @verdaccio/store@7.0.0
+  - @verdaccio/auth@7.0.0
+  - @verdaccio/config@7.0.0
+  - @verdaccio/core@7.0.0
+  - @verdaccio/logger@7.0.0
+  - @verdaccio/middleware@7.0.0
+  - @verdaccio/utils@7.0.0
+
+## 7.0.0-next-8.21
+
+### Patch Changes
+
+- Updated dependencies [8c10a3e]
+- Updated dependencies [a05a7d8]
+- Updated dependencies [7c9f3cf]
+  - @verdaccio/config@7.0.0-next-8.21
+  - @verdaccio/core@7.0.0-next-8.21
+  - @verdaccio/store@7.0.0-next-8.21
+  - @verdaccio/auth@7.0.0-next-8.21
+  - @verdaccio/middleware@7.0.0-next-8.21
+  - @verdaccio/utils@7.0.0-next-8.21
+  - @verdaccio/logger@7.0.0-next-8.21
+
+## 7.0.0-next-7.20
+
+### Patch Changes
+
+- Updated dependencies [ccc7bd1]
+  - @verdaccio/middleware@7.0.0-next-7.20
+  - @verdaccio/auth@7.0.0-next-7.20
+  - @verdaccio/store@7.0.0-next-7.20
+  - @verdaccio/core@7.0.0-next-7.20
+  - @verdaccio/config@7.0.0-next-7.20
+  - @verdaccio/utils@7.0.0-next-7.20
+  - @verdaccio/logger@7.0.0-next-7.20
+
+## 7.0.0-next-7.19
+
+### Patch Changes
+
+- 19df355: chore(api): update comment about route parameters
+- Updated dependencies [2a6ee33]
+- Updated dependencies [6c5f7a4]
+- Updated dependencies [c31aec8]
+  - @verdaccio/middleware@7.0.0-next-7.19
+  - @verdaccio/config@7.0.0-next-7.19
+  - @verdaccio/auth@7.0.0-next-7.19
+  - @verdaccio/store@7.0.0-next-7.19
+  - @verdaccio/core@7.0.0-next-7.19
+  - @verdaccio/utils@7.0.0-next-7.19
+  - @verdaccio/logger@7.0.0-next-7.19
+
+## 7.0.0-next-7.18
+
+### Patch Changes
+
+- Updated dependencies [10dd81f]
+  - @verdaccio/middleware@7.0.0-next-7.18
+  - @verdaccio/config@7.0.0-next-7.18
+  - @verdaccio/auth@7.0.0-next-7.18
+  - @verdaccio/core@7.0.0-next-7.18
+  - @verdaccio/logger@7.0.0-next-7.18
+  - @verdaccio/store@7.0.0-next-7.18
+  - @verdaccio/utils@7.0.0-next-7.18
+
+## 7.0.0-next-7.17
+
+### Patch Changes
+
+- 6e764e3: feat: add support for npm owner
+- Updated dependencies [6e764e3]
+- Updated dependencies [de6ff5c]
+  - @verdaccio/config@7.0.0-next-7.17
+  - @verdaccio/core@7.0.0-next-7.17
+  - @verdaccio/store@7.0.0-next-7.17
+  - @verdaccio/auth@7.0.0-next-7.17
+  - @verdaccio/logger@7.0.0-next-7.17
+  - @verdaccio/middleware@7.0.0-next-7.17
+  - @verdaccio/utils@7.0.0-next-7.17
+
+## 7.0.0-next-7.16
+
+### Patch Changes
+
+- Updated dependencies [e5624e1]
+- Updated dependencies [5bfab62]
+  - @verdaccio/store@7.0.0-next-7.16
+  - @verdaccio/logger@7.0.0-next-7.16
+  - @verdaccio/middleware@7.0.0-next-7.16
+  - @verdaccio/auth@7.0.0-next-7.16
+  - @verdaccio/core@7.0.0-next-7.16
+  - @verdaccio/config@7.0.0-next-7.16
+  - @verdaccio/utils@7.0.0-next-7.16
+
+## 7.0.0-next-7.15
+
+### Patch Changes
+
+- Updated dependencies [7400830]
+- Updated dependencies [bd8703e]
+  - @verdaccio/store@7.0.0-next-7.15
+  - @verdaccio/core@7.0.0-next-7.15
+  - @verdaccio/config@7.0.0-next-7.15
+  - @verdaccio/auth@7.0.0-next-7.15
+  - @verdaccio/logger@7.0.0-next-7.15
+  - @verdaccio/middleware@7.0.0-next-7.15
+  - @verdaccio/utils@7.0.0-next-7.15
+
+## 7.0.0-next-7.14
+
+### Patch Changes
+
+- Updated dependencies [b0946b2]
+- Updated dependencies [f967a69]
+- Updated dependencies [4dc62a8]
+- Updated dependencies [253cc13]
+  - @verdaccio/middleware@7.0.0-next-7.14
+  - @verdaccio/store@7.0.0-next-7.14
+  - @verdaccio/auth@7.0.0-next-7.14
+  - @verdaccio/core@7.0.0-next-7.14
+  - @verdaccio/config@7.0.0-next-7.14
+  - @verdaccio/utils@7.0.0-next-7.14
+  - @verdaccio/logger@7.0.0-next-7.14
+
+## 7.0.0-next-7.13
+
+### Patch Changes
+
+- Updated dependencies [a99a4bb]
+  - @verdaccio/config@7.0.0-next-7.13
+  - @verdaccio/auth@7.0.0-next-7.13
+  - @verdaccio/middleware@7.0.0-next-7.13
+  - @verdaccio/store@7.0.0-next-7.13
+  - @verdaccio/logger@7.0.0-next-7.13
+  - @verdaccio/core@7.0.0-next-7.13
+  - @verdaccio/utils@7.0.0-next-7.13
+
+## 7.0.0-next-7.12
+
+### Patch Changes
+
+- @verdaccio/store@7.0.0-next-7.12
+- @verdaccio/core@7.0.0-next-7.12
+- @verdaccio/config@7.0.0-next-7.12
+- @verdaccio/auth@7.0.0-next-7.12
+- @verdaccio/middleware@7.0.0-next-7.12
+- @verdaccio/utils@7.0.0-next-7.12
+- @verdaccio/logger@7.0.0-next-7.12
+
+## 7.0.0-next-7.11
+
+### Patch Changes
+
+- Updated dependencies [c9962fe]
+  - @verdaccio/config@7.0.0-next-7.11
+  - @verdaccio/auth@7.0.0-next-7.11
+  - @verdaccio/middleware@7.0.0-next-7.11
+  - @verdaccio/store@7.0.0-next-7.11
+  - @verdaccio/core@7.0.0-next-7.11
+  - @verdaccio/utils@7.0.0-next-7.11
+  - @verdaccio/logger@7.0.0-next-7.11
+
+## 7.0.0-next-7.10
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next-7.10
+- @verdaccio/config@7.0.0-next-7.10
+- @verdaccio/auth@7.0.0-next-7.10
+- @verdaccio/middleware@7.0.0-next-7.10
+- @verdaccio/store@7.0.0-next-7.10
+- @verdaccio/utils@7.0.0-next-7.10
+- @verdaccio/logger@7.0.0-next-7.10
+
+## 7.0.0-next-7.9
+
+### Patch Changes
+
+- Updated dependencies [c807f0c]
+  - @verdaccio/store@7.0.0-next-7.9
+  - @verdaccio/core@7.0.0-next-7.9
+  - @verdaccio/config@7.0.0-next-7.9
+  - @verdaccio/auth@7.0.0-next-7.9
+  - @verdaccio/middleware@7.0.0-next-7.9
+  - @verdaccio/utils@7.0.0-next-7.9
+  - @verdaccio/logger@7.0.0-next-7.9
+
+## 7.0.0-next-7.8
+
+### Patch Changes
+
+- 74cd588: fix: bug on change password npm profile
+  - @verdaccio/core@7.0.0-next-7.8
+  - @verdaccio/config@7.0.0-next-7.8
+  - @verdaccio/auth@7.0.0-next-7.8
+  - @verdaccio/middleware@7.0.0-next-7.8
+  - @verdaccio/store@7.0.0-next-7.8
+  - @verdaccio/utils@7.0.0-next-7.8
+  - @verdaccio/logger@7.0.0-next-7.8
+
+## 7.0.0-next-7.7
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next-7.7
+- @verdaccio/config@7.0.0-next-7.7
+- @verdaccio/auth@7.0.0-next-7.7
+- @verdaccio/middleware@7.0.0-next-7.7
+- @verdaccio/store@7.0.0-next-7.7
+- @verdaccio/utils@7.0.0-next-7.7
+- @verdaccio/logger@7.0.0-next-7.7
+
+## 7.0.0-next.6
+
+### Patch Changes
+
+- Updated dependencies [e14b064]
+- Updated dependencies [4d96324]
+  - @verdaccio/store@7.0.0-next.6
+  - @verdaccio/config@7.0.0-next.6
+  - @verdaccio/auth@7.0.0-next.6
+  - @verdaccio/middleware@7.0.0-next.6
+  - @verdaccio/core@7.0.0-next.6
+  - @verdaccio/utils@7.0.0-next.6
+  - @verdaccio/logger@7.0.0-next.6
+
+## 7.0.0-next.5
+
+### Minor Changes
+
+- f047cc8: refactor: auth with legacy sign support
+
+### Patch Changes
+
+- Updated dependencies [f047cc8]
+  - @verdaccio/middleware@7.0.0-next.5
+  - @verdaccio/core@7.0.0-next.5
+  - @verdaccio/config@7.0.0-next.5
+  - @verdaccio/auth@7.0.0-next.5
+  - @verdaccio/store@7.0.0-next.5
+  - @verdaccio/logger@7.0.0-next.5
+  - @verdaccio/utils@7.0.0-next.5
+
+## 7.0.0-next.4
+
+### Patch Changes
+
+- @verdaccio/auth@7.0.0-next.4
+- @verdaccio/core@7.0.0-next.4
+- @verdaccio/config@7.0.0-next.4
+- @verdaccio/middleware@7.0.0-next.4
+- @verdaccio/store@7.0.0-next.4
+- @verdaccio/utils@7.0.0-next.4
+- @verdaccio/logger@7.0.0-next.4
+
+## 7.0.0-next.3
+
+### Major Changes
+
+- e7ebccb61: update major dependencies, remove old nodejs support
+
+### Patch Changes
+
+- Updated dependencies [daceb6d87]
+- Updated dependencies [e7ebccb61]
+  - @verdaccio/config@7.0.0-next.3
+  - @verdaccio/core@7.0.0-next.3
+  - @verdaccio/middleware@7.0.0-next.3
+  - @verdaccio/utils@7.0.0-next.3
+  - @verdaccio/auth@7.0.0-next.3
+  - @verdaccio/logger@7.0.0-next.3
+  - @verdaccio/store@7.0.0-next.3
+
+## 7.0.0-next.2
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next.2
+- @verdaccio/config@7.0.0-next.2
+- @verdaccio/auth@7.0.0-next.2
+- @verdaccio/middleware@7.0.0-next.2
+- @verdaccio/store@7.0.0-next.2
+- @verdaccio/utils@7.0.0-next.2
+- @verdaccio/logger@7.0.0-next.2
+
+## 7.0.0-next.1
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next.1
+- @verdaccio/config@7.0.0-next.1
+- @verdaccio/auth@7.0.0-next.1
+- @verdaccio/middleware@7.0.0-next.1
+- @verdaccio/store@7.0.0-next.1
+- @verdaccio/utils@7.0.0-next.1
+- @verdaccio/logger@7.0.0-next.1
+
+## 7.0.0-next.0
+
+### Major Changes
+
+- feat!: bump to v7
+
+### Patch Changes
+
+- Updated dependencies
+  - @verdaccio/auth@7.0.0-next.0
+  - @verdaccio/config@7.0.0-next.0
+  - @verdaccio/core@7.0.0-next.0
+  - @verdaccio/logger@7.0.0-next.0
+  - @verdaccio/middleware@7.0.0-next.0
+  - @verdaccio/store@7.0.0-next.0
+  - @verdaccio/utils@7.0.0-next.0
+
+## 6.0.0
+
+### Major Changes
+
+- 292c0a37f: feat!: replace deprecated request dependency by got
+
+  This is a big refactoring of the core, fetching dependencies, improve code, more tests and better stability. This is essential for the next release, will take some time but would allow modularize more the core.
+
+  ## Notes
+
+  - Remove deprecated `request` by other `got`, retry improved, custom Agent ( got does not include it built-in)
+  - Remove `async` dependency from storage (used by core) it was linked with proxy somehow safe to remove now
+  - Refactor with promises instead callback wherever is possible
+  - ~Document the API~
+  - Improve testing, integration tests
+  - Bugfix
+  - Clean up old validations
+  - Improve performance
+
+  ## 💥 Breaking changes
+
+  - Plugin API methods were callbacks based are returning promises, this will break current storage plugins, check documentation for upgrade.
+  - Write Tarball, Read Tarball methods parameters change, a new set of options like `AbortController` signals are being provided to the `addAbortSignal` can be internally used with Streams when a request is aborted. eg: `addAbortSignal(signal, fs.createReadStream(pathName));`
+  - `@verdaccio/streams` stream abort support is legacy is being deprecated removed
+  - Remove AWS and Google Cloud packages for future refactoring [#2574](https://github.com/verdaccio/verdaccio/pull/2574).
+
+- a828271d6: refactor: download manifest endpoint and integrate fastify
+
+  Much simpler API for fetching a package
+
+  ```
+   const manifest = await storage.getPackageNext({
+        name,
+        uplinksLook: true,
+        req,
+        version: queryVersion,
+        requestOptions,
+   });
+  ```
+
+  > not perfect, the `req` still is being passed to the proxy (this has to be refactored at proxy package) and then removed from here, in proxy we pass the request instance to the `request` library.
+
+  ### Details
+
+  - `async/await` sugar for getPackage()
+  - Improve and reuse code between current implementation and new fastify endpoint (add scaffolding for request manifest)
+  - Improve performance
+  - Add new tests
+
+  ### Breaking changes
+
+  All storage plugins will stop to work since the storage uses `getPackageNext` method which is Promise based, I won't replace this now because will force me to update all plugins, I'll follow up in another PR. Currently will throw http 500
+
+- 459b6fa72: refactor: search v1 endpoint and local-database
+
+  - refactor search `api v1` endpoint, improve performance
+  - remove usage of `async` dependency https://github.com/verdaccio/verdaccio/issues/1225
+  - refactor method storage class
+  - create new module `core` to reduce the ammount of modules with utilities
+  - use `undici` instead `node-fetch`
+  - use `fastify` instead `express` for functional test
+
+  ### Breaking changes
+
+  - plugin storage API changes
+  - remove old search endpoint (return 404)
+  - filter local private packages at plugin level
+
+  The storage api changes for methods `get`, `add`, `remove` as promise base. The `search` methods also changes and recieves a `query` object that contains all query params from the client.
+
+  ```ts
+  export interface IPluginStorage<T> extends IPlugin {
+    add(name: string): Promise<void>;
+    remove(name: string): Promise<void>;
+    get(): Promise<any>;
+    init(): Promise<void>;
+    getSecret(): Promise<string>;
+    setSecret(secret: string): Promise<any>;
+    getPackageStorage(packageInfo: string): IPackageStorage;
+    search(query: searchUtils.SearchQuery): Promise<searchUtils.SearchItem[]>;
+    saveToken(token: Token): Promise<any>;
+    deleteToken(user: string, tokenKey: string): Promise<any>;
+    readTokens(filter: TokenFilter): Promise<Token[]>;
+  }
+  ```
+
+- 9fc2e7961: feat(plugins): improve plugin loader
+
+  ### Changes
+
+  - Add scope plugin support to 6.x https://github.com/verdaccio/verdaccio/pull/3227
+  - Avoid config collisions https://github.com/verdaccio/verdaccio/issues/928
+  - https://github.com/verdaccio/verdaccio/issues/1394
+  - `config.plugins` plugin path validations
+  - Updated algorithm for plugin loader.
+  - improved documentation (included dev)
+
+  ## Features
+
+  - Add scope plugin support to 6.x https://github.com/verdaccio/verdaccio/pull/3227
+  - Custom prefix:
+
+  ```
+  // config.yaml
+  server:
+    pluginPrefix: mycompany
+  middleware:
+    audit:
+        foo: 1
+  ```
+
+  This configuration will look up for `mycompany-audit` instead `Verdaccio-audit`.
+
+  ## Breaking Changes
+
+  ### sinopia plugins
+
+  - `sinopia` fallback support is removed, but can be restored using `pluginPrefix`
+
+  ### plugin filter
+
+  - method rename `filter_metadata`->`filterMetadata`
+
+  ### Plugin constructor does not merge configs anymore https://github.com/verdaccio/verdaccio/issues/928
+
+  The plugin receives as first argument `config`, which represents the config of the plugin. Example:
+
+  ```
+  // config.yaml
+  auth:
+    plugin:
+       foo: 1
+       bar: 2
+
+  export class Plugin<T> {
+    public constructor(config: T, options: PluginOptions) {
+      console.log(config);
+      // {foo:1, bar: 2}
+   }
+  }
+  ```
+
+- 794af76c5: Remove Node 12 support
+
+  - We need move to the new `undici` and does not support Node.js 12
+
+- 10aeb4f13: feat!: experiments config renamed to flags
+
+  - The `experiments` configuration is renamed to `flags`. The functionality is exactly the same.
+
+  ```js
+  flags: token: false;
+  search: false;
+  ```
+
+  - The `self_path` property from the config file is being removed in favor of `config_file` full path.
+  - Refactor `config` module, better types and utilities
+
+- e367c3f1e: - Replace signature handler for legacy tokens by removing deprecated crypto.createDecipher by createCipheriv
+
+  - Introduce environment variables for legacy tokens
+
+  ### Code Improvements
+
+  - Add debug library for improve developer experience
+
+  ### Breaking change
+
+  - The new signature invalidates all previous tokens generated by Verdaccio 4 or previous versions.
+  - The secret key must have 32 characters long.
+
+  ### New environment variables
+
+  - `VERDACCIO_LEGACY_ALGORITHM`: Allows to define the specific algorithm for the token signature which by default is `aes-256-ctr`
+  - `VERDACCIO_LEGACY_ENCRYPTION_KEY`: By default, the token stores in the database, but using this variable allows to get it from memory
+
+- 82cb0f2bf: feat!: config.logs throw an error, logging config not longer accept array or logs property
+
+  ### 💥 Breaking change
+
+  This is valid
+
+  ```yaml
+  log: { type: stdout, format: pretty, level: http }
+  ```
+
+  This is invalid
+
+  ```yaml
+  logs: { type: stdout, format: pretty, level: http }
+  ```
+
+  or
+
+  ```yaml
+  logs:
+    - [{ type: stdout, format: pretty, level: http }]
+  ```
+
+### Minor Changes
+
+- a1986e098: feat: expose middleware utils
+- ef88da3b4: feat: improve support for fs promises older nodejs
+- ae93e039d: fix: expose middleware methods
+- 24b9be020: refactor: improve docker image build with strict dependencies and prod build
+- 631abe1ac: feat: refactor logger
+- b702ea363: abort search request support for proxy
+- 00d1d2a17: chore: env variable for launch fastify
+
+  - Update fastify to major release `v4.3.0`
+  - Update CLI launcher
+
+  via CLI
+
+  ```
+  VERDACCIO_SERVER=fastify verdaccio
+  ```
+
+  with docker
+
+  ```
+  docker run -it --rm --name verdaccio \
+    -e "VERDACCIO_SERVER=8080" -p 8080:8080 \
+    -e "VERDACCIO_SERVER=fastify" \
+    verdaccio/verdaccio
+  ```
+
+- e54ec4b5d: feat: remove level dependency by lowdb for npm token cli as storage
+
+  ### new npm token database
+
+  There will be a new database located in your storage named `.token-db.json` which
+  will store all references to created tokens, **it does not store tokens**, just
+  mask of them and related metadata required to reference them.
+
+  #### Breaking change
+
+  If you were relying on `npm token` experiment. This PR will replace the
+  used database (level) by a json plain based one (lowbd) which does not
+  require Node.js C++ compilation step and has less dependencies. Since was
+  a experiment there is no migration step.
+
+- b61f762d6: feat: add server rate limit protection to all request
+
+  To modify custom values, use the server settings property.
+
+  ```markdown
+  server:
+
+  ## https://www.npmjs.com/package/express-rate-limit#configuration-options
+
+  rateLimit:
+  windowMs: 1000
+  max: 10000
+  ```
+
+  The values are intended to be high, if you want to improve security of your server consider
+  using different values.
+
+- 154b2ecd3: refactor: remove @verdaccio/commons-api in favor @verdaccio/core and remove duplications
+- aa763baec: feat: add typescript project references settings
+
+  Reading https://ebaytech.berlin/optimizing-multi-package-apps-with-typescript-project-references-d5c57a3b4440 I realized I can use project references to solve the issue to pre-compile modules on develop mode.
+
+  It allows to navigate (IDE) trough the packages without need compile the packages.
+
+  Add two `tsconfig`, one using the previous existing configuration that is able to produce declaration files (`tsconfig.build`) and a new one `tsconfig` which is enables [_projects references_](https://www.typescriptlang.org/docs/handbook/project-references.html).
+
+- ce013d2fc: refactor: npm star command support reimplemented
+- 62c24b632: feat: add passwordValidationRegex property
+- 5167bb528: feat: ui search support for remote, local and private packages
+
+  The command `npm search` search globally and return all matches, with this improvement the user interface
+  is powered with the same capabilities.
+
+  The UI also tag where is the origin the package with a tag, also provide the latest version and description of the package.
+
+- 4b29d715b: chore: move improvements from v5 to v6
+
+  Migrate improvements form v5 to v6:
+
+  - https://github.com/verdaccio/verdaccio/pull/3158
+  - https://github.com/verdaccio/verdaccio/pull/3151
+  - https://github.com/verdaccio/verdaccio/pull/2271
+  - https://github.com/verdaccio/verdaccio/pull/2787
+  - https://github.com/verdaccio/verdaccio/pull/2791
+  - https://github.com/verdaccio/verdaccio/pull/2205
+
+- b13a3fefd: refactor: improve versions and dist-tag filters
+- 37274e4c8: feat: implement abbreviated manifest
+
+  Enable abbreviated manifest data by adding the header:
+
+  ```
+  curl -H "Accept: application/vnd.npm.install-v1+json" https://registry.npmjs.org/verdaccio
+  ```
+
+  It returns a filtered manifest, additionally includes the [time](https://github.com/pnpm/rfcs/pull/2) field by request.
+
+  Current support for packages managers:
+
+  - npm: yes
+  - pnpm: yes
+  - yarn classic: yes
+  - yarn modern (+2.x): [no](https://github.com/yarnpkg/berry/pull/3981#issuecomment-1076566096)
+
+  https://github.com/npm/registry/blob/master/docs/responses/package-metadata.md#abbreviated-metadata-format
+
+- 45c03819e: refactor: render html middleware
+
+### Patch Changes
+
+- 43f32687c: fix: abbreviated headers handle quality values
+- 351aeeaa8: fix(deps): @verdaccio/utils should be a prod dep of local-storage
+- a610ef26b: chore: add release step to private regisry on merge changeset pr
+- 34f0f1101: Enable prerelease mode with **changesets**
+- f859d2b1a: fix: official package "-" cannot be synced
+- 168833d85: testing changesets
+- b4cc80017: fix: improve abort request search
+- 68ea21214: ESLint Warnings Fixed
+
+  Related to issue #1461
+
+  - max-len: most of the sensible max-len errors are fixed
+  - no-unused-vars: most of these types of errors are fixed by deleting not needed declarations
+  - @typescript-eslint/no-unused-vars: same as above
+
+- b849128de: fix: handle upload scoped tarball
+- Updated dependencies [292c0a37f]
+- Updated dependencies [dc05edfe6]
+- Updated dependencies [a1986e098]
+- Updated dependencies [974cd8c19]
+- Updated dependencies [a828271d6]
+- Updated dependencies [ef88da3b4]
+- Updated dependencies [43f32687c]
+- Updated dependencies [679c19c1b]
+- Updated dependencies [a3a209b5e]
+- Updated dependencies [459b6fa72]
+- Updated dependencies [9fc2e7961]
+- Updated dependencies [9943e2b18]
+- Updated dependencies [ae93e039d]
+- Updated dependencies [24b9be020]
+- Updated dependencies [794af76c5]
+- Updated dependencies [e75c0a3b9]
+- Updated dependencies [351aeeaa8]
+- Updated dependencies [10aeb4f13]
+- Updated dependencies [1d1112805]
+- Updated dependencies [631abe1ac]
+- Updated dependencies [9718e0330]
+- Updated dependencies [7ef599cc4]
+- Updated dependencies [b702ea363]
+- Updated dependencies [1b217fd34]
+- Updated dependencies [e367c3f1e]
+- Updated dependencies [a1da11308]
+- Updated dependencies [d167f92e1]
+- Updated dependencies [d2c65da9c]
+- Updated dependencies [00d1d2a17]
+- Updated dependencies [1810ed0d8]
+- Updated dependencies [a610ef26b]
+- Updated dependencies [ddb6a2239]
+- Updated dependencies [648575aa4]
+- Updated dependencies [b61f762d6]
+- Updated dependencies [4fc21146a]
+- Updated dependencies [d43894e8f]
+- Updated dependencies [154b2ecd3]
+- Updated dependencies [061bfcc8d]
+- Updated dependencies [aa763baec]
+- Updated dependencies [378e907d5]
+- Updated dependencies [16e38df8a]
+- Updated dependencies [34f0f1101]
+- Updated dependencies [82cb0f2bf]
+- Updated dependencies [dc571aabd]
+- Updated dependencies [5ddfa5264]
+- Updated dependencies [b78f35257]
+- Updated dependencies [ce013d2fc]
+- Updated dependencies [f859d2b1a]
+- Updated dependencies [2c594910d]
+- Updated dependencies [6c1eb021b]
+- Updated dependencies [62c24b632]
+- Updated dependencies [0a6412ca9]
+- Updated dependencies [0a6412ca9]
+- Updated dependencies [d08fe29d9]
+- Updated dependencies [5167bb528]
+- Updated dependencies [f86c31ed0]
+- Updated dependencies [65f88b826]
+- Updated dependencies [aeff267d9]
+- Updated dependencies [20c9e43ed]
+- Updated dependencies [b3e8438f6]
+- Updated dependencies [c9d1af0e5]
+- Updated dependencies [730b5d8cc]
+- Updated dependencies [4b29d715b]
+- Updated dependencies [b13a3fefd]
+- Updated dependencies [68ea21214]
+- Updated dependencies [37274e4c8]
+- Updated dependencies [fa274ee44]
+- Updated dependencies [8f43bf17d]
+- Updated dependencies [45c03819e]
+- Updated dependencies [b849128de]
+  - @verdaccio/auth@6.0.0
+  - @verdaccio/config@6.0.0
+  - @verdaccio/core@6.0.0
+  - @verdaccio/logger@6.0.0
+  - @verdaccio/middleware@6.0.0
+  - @verdaccio/store@6.0.0
+  - @verdaccio/utils@6.0.0
+
+## 6.0.0-6-next.59
+
+### Patch Changes
+
+- @verdaccio/store@6.0.0-6-next.56
+- @verdaccio/core@6.0.0-6-next.76
+- @verdaccio/config@6.0.0-6-next.76
+- @verdaccio/auth@6.0.0-6-next.55
+- @verdaccio/middleware@6.0.0-6-next.55
+- @verdaccio/utils@6.0.0-6-next.44
+- @verdaccio/logger@6.0.0-6-next.44
+
+## 6.0.0-6-next.58
+
+### Patch Changes
+
+- Updated dependencies [0a6412ca9]
+- Updated dependencies [0a6412ca9]
+  - @verdaccio/core@6.0.0-6-next.75
+  - @verdaccio/store@6.0.0-6-next.55
+  - @verdaccio/auth@6.0.0-6-next.54
+  - @verdaccio/config@6.0.0-6-next.75
+  - @verdaccio/middleware@6.0.0-6-next.54
+  - @verdaccio/utils@6.0.0-6-next.43
+  - @verdaccio/logger@6.0.0-6-next.43
+
+## 6.0.0-6-next.57
+
+### Minor Changes
+
+- ae93e039d: fix: expose middleware methods
+
+### Patch Changes
+
+- Updated dependencies [ae93e039d]
+  - @verdaccio/middleware@6.0.0-6-next.53
+  - @verdaccio/core@6.0.0-6-next.74
+  - @verdaccio/config@6.0.0-6-next.74
+  - @verdaccio/auth@6.0.0-6-next.53
+  - @verdaccio/store@6.0.0-6-next.54
+  - @verdaccio/utils@6.0.0-6-next.42
+  - @verdaccio/logger@6.0.0-6-next.42
+
+## 6.0.0-6-next.56
+
+### Patch Changes
+
+- f859d2b1a: fix: official package "-" cannot be synced
+- Updated dependencies [f859d2b1a]
+  - @verdaccio/core@6.0.0-6-next.73
+  - @verdaccio/middleware@6.0.0-6-next.52
+  - @verdaccio/auth@6.0.0-6-next.52
+  - @verdaccio/config@6.0.0-6-next.73
+  - @verdaccio/store@6.0.0-6-next.53
+  - @verdaccio/utils@6.0.0-6-next.41
+  - @verdaccio/logger@6.0.0-6-next.41
+
+## 6.0.0-6-next.55
+
+### Patch Changes
+
+- @verdaccio/core@6.0.0-6-next.72
+- @verdaccio/config@6.0.0-6-next.72
+- @verdaccio/auth@6.0.0-6-next.51
+- @verdaccio/middleware@6.0.0-6-next.51
+- @verdaccio/store@6.0.0-6-next.52
+- @verdaccio/utils@6.0.0-6-next.40
+- @verdaccio/logger@6.0.0-6-next.40
+
+## 6.0.0-6-next.54
+
+### Patch Changes
+
+- Updated dependencies [679c19c1b]
+  - @verdaccio/config@6.0.0-6-next.71
+  - @verdaccio/auth@6.0.0-6-next.50
+  - @verdaccio/middleware@6.0.0-6-next.50
+  - @verdaccio/store@6.0.0-6-next.51
+  - @verdaccio/logger@6.0.0-6-next.39
+  - @verdaccio/core@6.0.0-6-next.71
+  - @verdaccio/utils@6.0.0-6-next.39
+
+## 6.0.0-6-next.53
+
+### Patch Changes
+
+- @verdaccio/logger@6.0.0-6-next.38
+- @verdaccio/auth@6.0.0-6-next.49
+- @verdaccio/middleware@6.0.0-6-next.49
+- @verdaccio/store@6.0.0-6-next.50
+- @verdaccio/core@6.0.0-6-next.70
+- @verdaccio/config@6.0.0-6-next.70
+- @verdaccio/utils@6.0.0-6-next.38
+
+## 6.0.0-6-next.52
+
+### Patch Changes
+
+- Updated dependencies [c9d1af0e]
+  - @verdaccio/auth@6.0.0-6-next.48
+  - @verdaccio/core@6.0.0-6-next.69
+  - @verdaccio/config@6.0.0-6-next.69
+  - @verdaccio/middleware@6.0.0-6-next.48
+  - @verdaccio/store@6.0.0-6-next.49
+  - @verdaccio/utils@6.0.0-6-next.37
+  - @verdaccio/logger@6.0.0-6-next.37
+
+## 6.0.0-6-next.51
+
+### Patch Changes
+
+- @verdaccio/auth@6.0.0-6-next.47
+- @verdaccio/core@6.0.0-6-next.68
+- @verdaccio/config@6.0.0-6-next.68
+- @verdaccio/middleware@6.0.0-6-next.47
+- @verdaccio/store@6.0.0-6-next.48
+- @verdaccio/utils@6.0.0-6-next.36
+- @verdaccio/logger@6.0.0-6-next.36
+
+## 6.0.0-6-next.50
+
+### Patch Changes
+
+- Updated dependencies [16e38df8]
+  - @verdaccio/config@6.0.0-6-next.67
+  - @verdaccio/core@6.0.0-6-next.67
+  - @verdaccio/store@6.0.0-6-next.47
+  - @verdaccio/auth@6.0.0-6-next.46
+  - @verdaccio/middleware@6.0.0-6-next.46
+  - @verdaccio/utils@6.0.0-6-next.35
+  - @verdaccio/logger@6.0.0-6-next.35
+
+## 6.0.0-6-next.49
+
+### Patch Changes
+
+- Updated dependencies [7ef599cc]
+  - @verdaccio/middleware@6.0.0-6-next.45
+  - @verdaccio/auth@6.0.0-6-next.45
+  - @verdaccio/core@6.0.0-6-next.66
+  - @verdaccio/logger@6.0.0-6-next.34
+  - @verdaccio/store@6.0.0-6-next.46
+  - @verdaccio/config@6.0.0-6-next.66
+  - @verdaccio/utils@6.0.0-6-next.34
+
+## 6.0.0-6-next.48
+
+### Patch Changes
+
+- Updated dependencies [a1da1130]
+  - @verdaccio/core@6.0.0-6-next.65
+  - @verdaccio/auth@6.0.0-6-next.44
+  - @verdaccio/config@6.0.0-6-next.65
+  - @verdaccio/middleware@6.0.0-6-next.44
+  - @verdaccio/store@6.0.0-6-next.45
+  - @verdaccio/utils@6.0.0-6-next.33
+  - @verdaccio/logger@6.0.0-6-next.33
+
+## 6.0.0-6-next.47
+
+### Patch Changes
+
+- Updated dependencies [974cd8c1]
+  - @verdaccio/core@6.0.0-6-next.64
+  - @verdaccio/auth@6.0.0-6-next.43
+  - @verdaccio/config@6.0.0-6-next.64
+  - @verdaccio/middleware@6.0.0-6-next.43
+  - @verdaccio/store@6.0.0-6-next.44
+  - @verdaccio/utils@6.0.0-6-next.32
+  - @verdaccio/logger@6.0.0-6-next.32
+
+## 6.0.0-6-next.46
+
+### Patch Changes
+
+- Updated dependencies [ddb6a223]
+- Updated dependencies [dc571aab]
+  - @verdaccio/auth@6.0.0-6-next.42
+  - @verdaccio/config@6.0.0-6-next.63
+  - @verdaccio/core@6.0.0-6-next.63
+  - @verdaccio/middleware@6.0.0-6-next.42
+  - @verdaccio/store@6.0.0-6-next.43
+  - @verdaccio/utils@6.0.0-6-next.31
+  - @verdaccio/logger@6.0.0-6-next.31
+
+## 6.0.0-6-next.45
+
+### Patch Changes
+
+- Updated dependencies [4fc21146]
+- Updated dependencies [378e907d]
+  - @verdaccio/middleware@6.0.0-6-next.41
+  - @verdaccio/core@6.0.0-6-next.62
+  - @verdaccio/auth@6.0.0-6-next.41
+  - @verdaccio/logger@6.0.0-6-next.30
+  - @verdaccio/store@6.0.0-6-next.42
+  - @verdaccio/config@6.0.0-6-next.62
+  - @verdaccio/utils@6.0.0-6-next.30
+
+## 6.0.0-6-next.44
+
+### Patch Changes
+
+- Updated dependencies [d167f92e]
+  - @verdaccio/config@6.0.0-6-next.61
+  - @verdaccio/auth@6.0.0-6-next.40
+  - @verdaccio/middleware@6.0.0-6-next.40
+  - @verdaccio/store@6.0.0-6-next.41
+  - @verdaccio/core@6.0.0-6-next.61
+  - @verdaccio/utils@6.0.0-6-next.29
+  - @verdaccio/logger@6.0.0-6-next.29
+
+## 6.0.0-6-next.43
+
+### Minor Changes
+
+- 45c03819: refactor: render html middleware
+
+### Patch Changes
+
+- Updated dependencies [45c03819]
+  - @verdaccio/config@6.0.0-6-next.60
+  - @verdaccio/middleware@6.0.0-6-next.39
+  - @verdaccio/store@6.0.0-6-next.40
+  - @verdaccio/auth@6.0.0-6-next.39
+  - @verdaccio/core@6.0.0-6-next.60
+  - @verdaccio/logger@6.0.0-6-next.28
+  - @verdaccio/utils@6.0.0-6-next.28
+
+## 6.0.0-6-next.42
+
+### Patch Changes
+
+- Updated dependencies [65f88b82]
+  - @verdaccio/logger@6.0.0-6-next.27
+  - @verdaccio/middleware@6.0.0-6-next.38
+  - @verdaccio/auth@6.0.0-6-next.38
+  - @verdaccio/store@6.0.0-6-next.39
+  - @verdaccio/core@6.0.0-6-next.59
+  - @verdaccio/config@6.0.0-6-next.59
+  - @verdaccio/utils@6.0.0-6-next.27
+
+## 6.0.0-6-next.41
+
+### Patch Changes
+
+- Updated dependencies [fa274ee4]
+  - @verdaccio/middleware@6.0.0-6-next.37
+  - @verdaccio/core@6.0.0-6-next.58
+  - @verdaccio/config@6.0.0-6-next.58
+  - @verdaccio/auth@6.0.0-6-next.37
+  - @verdaccio/store@6.0.0-6-next.38
+  - @verdaccio/utils@6.0.0-6-next.26
+  - @verdaccio/logger@6.0.0-6-next.26
+
+## 6.0.0-6-next.40
+
+### Patch Changes
+
+- Updated dependencies [9943e2b1]
+  - @verdaccio/middleware@6.0.0-6-next.36
+  - @verdaccio/store@6.0.0-6-next.37
+  - @verdaccio/core@6.0.0-6-next.57
+  - @verdaccio/config@6.0.0-6-next.57
+  - @verdaccio/auth@6.0.0-6-next.36
+  - @verdaccio/logger@6.0.0-6-next.25
+  - @verdaccio/utils@6.0.0-6-next.25
+
+## 6.0.0-6-next.39
+
+### Minor Changes
+
+- a1986e09: feat: expose middleware utils
+
+### Patch Changes
+
+- Updated dependencies [a1986e09]
+  - @verdaccio/middleware@6.0.0-6-next.35
+  - @verdaccio/utils@6.0.0-6-next.24
+  - @verdaccio/auth@6.0.0-6-next.35
+  - @verdaccio/config@6.0.0-6-next.56
+  - @verdaccio/store@6.0.0-6-next.36
+  - @verdaccio/core@6.0.0-6-next.56
+  - @verdaccio/logger@6.0.0-6-next.24
+
+## 6.0.0-6-next.38
+
+### Patch Changes
+
+- Updated dependencies [9718e033]
+  - @verdaccio/config@6.0.0-6-next.55
+  - @verdaccio/core@6.0.0-6-next.55
+  - @verdaccio/store@6.0.0-6-next.35
+  - @verdaccio/utils@6.0.0-6-next.23
+  - @verdaccio/auth@6.0.0-6-next.34
+  - @verdaccio/logger@6.0.0-6-next.23
+  - @verdaccio/middleware@6.0.0-6-next.34
+
+## 6.0.0-6-next.37
+
+### Minor Changes
+
+- ef88da3b: feat: improve support for fs promises older nodejs
+
+### Patch Changes
+
+- Updated dependencies [ef88da3b]
+  - @verdaccio/config@6.0.0-6-next.54
+  - @verdaccio/core@6.0.0-6-next.54
+  - @verdaccio/logger@6.0.0-6-next.22
+  - @verdaccio/utils@6.0.0-6-next.22
+  - @verdaccio/auth@6.0.0-6-next.33
+  - @verdaccio/store@6.0.0-6-next.34
+  - @verdaccio/middleware@6.0.0-6-next.33
+
+## 6.0.0-6-next.36
+
+### Patch Changes
+
+- @verdaccio/auth@6.0.0-6-next.32
+- @verdaccio/core@6.0.0-6-next.53
+- @verdaccio/logger@6.0.0-6-next.21
+- @verdaccio/store@6.0.0-6-next.33
+- @verdaccio/config@6.0.0-6-next.53
+- @verdaccio/middleware@6.0.0-6-next.32
+- @verdaccio/utils@6.0.0-6-next.21
+
+## 6.0.0-6-next.35
+
+### Patch Changes
+
+- @verdaccio/core@6.0.0-6-next.52
+- @verdaccio/config@6.0.0-6-next.52
+- @verdaccio/auth@6.0.0-6-next.31
+- @verdaccio/logger@6.0.0-6-next.20
+- @verdaccio/middleware@6.0.0-6-next.31
+- @verdaccio/store@6.0.0-6-next.32
+- @verdaccio/utils@6.0.0-6-next.20
+
+## 6.0.0-6-next.34
+
+### Minor Changes
+
+- 4b29d715: chore: move improvements from v5 to v6
+
+  Migrate improvements form v5 to v6:
+
+  - https://github.com/verdaccio/verdaccio/pull/3158
+  - https://github.com/verdaccio/verdaccio/pull/3151
+  - https://github.com/verdaccio/verdaccio/pull/2271
+  - https://github.com/verdaccio/verdaccio/pull/2787
+  - https://github.com/verdaccio/verdaccio/pull/2791
+  - https://github.com/verdaccio/verdaccio/pull/2205
+
+### Patch Changes
+
+- Updated dependencies [4b29d715]
+  - @verdaccio/auth@6.0.0-6-next.30
+  - @verdaccio/config@6.0.0-6-next.51
+  - @verdaccio/core@6.0.0-6-next.51
+  - @verdaccio/middleware@6.0.0-6-next.30
+  - @verdaccio/store@6.0.0-6-next.31
+  - @verdaccio/logger@6.0.0-6-next.19
+  - @verdaccio/utils@6.0.0-6-next.19
+
+## 6.0.0-6-next.33
+
+### Patch Changes
+
+- b4cc8001: fix: improve abort request search
+  - @verdaccio/core@6.0.0-6-next.50
+  - @verdaccio/config@6.0.0-6-next.50
+  - @verdaccio/auth@6.0.0-6-next.29
+  - @verdaccio/logger@6.0.0-6-next.18
+  - @verdaccio/middleware@6.0.0-6-next.29
+  - @verdaccio/store@6.0.0-6-next.30
+  - @verdaccio/utils@6.0.0-6-next.18
+
+## 6.0.0-6-next.32
+
+### Minor Changes
+
+- ce013d2f: refactor: npm star command support reimplemented
+
+### Patch Changes
+
+- Updated dependencies [ce013d2f]
+  - @verdaccio/store@6.0.0-6-next.29
+  - @verdaccio/core@6.0.0-6-next.49
+  - @verdaccio/config@6.0.0-6-next.49
+  - @verdaccio/auth@6.0.0-6-next.28
+  - @verdaccio/logger@6.0.0-6-next.17
+  - @verdaccio/middleware@6.0.0-6-next.28
+  - @verdaccio/utils@6.0.0-6-next.17
+
+## 6.0.0-6-next.31
+
+### Major Changes
+
+- 9fc2e796: feat(plugins): improve plugin loader
+
+  ### Changes
+
+  - Add scope plugin support to 6.x https://github.com/verdaccio/verdaccio/pull/3227
+  - Avoid config collisions https://github.com/verdaccio/verdaccio/issues/928
+  - https://github.com/verdaccio/verdaccio/issues/1394
+  - `config.plugins` plugin path validations
+  - Updated algorithm for plugin loader.
+  - improved documentation (included dev)
+
+  ## Features
+
+  - Add scope plugin support to 6.x https://github.com/verdaccio/verdaccio/pull/3227
+  - Custom prefix:
+
+  ```
+  // config.yaml
+  server:
+    pluginPrefix: mycompany
+  middleware:
+    audit:
+        foo: 1
+  ```
+
+  This configuration will look up for `mycompany-audit` instead `Verdaccio-audit`.
+
+  ## Breaking Changes
+
+  ### sinopia plugins
+
+  - `sinopia` fallback support is removed, but can be restored using `pluginPrefix`
+
+  ### plugin filter
+
+  - method rename `filter_metadata`->`filterMetadata`
+
+  ### Plugin constructor does not merge configs anymore https://github.com/verdaccio/verdaccio/issues/928
+
+  The plugin receives as first argument `config`, which represents the config of the plugin. Example:
+
+  ```
+  // config.yaml
+  auth:
+    plugin:
+       foo: 1
+       bar: 2
+
+  export class Plugin<T> {
+    public constructor(config: T, options: PluginOptions) {
+      console.log(config);
+      // {foo:1, bar: 2}
+   }
+  }
+  ```
+
+### Minor Changes
+
+- 62c24b63: feat: add passwordValidationRegex property
+
+### Patch Changes
+
+- 43f32687: fix: abbreviated headers handle quality values
+- Updated dependencies [43f32687]
+- Updated dependencies [9fc2e796]
+- Updated dependencies [62c24b63]
+  - @verdaccio/core@6.0.0-6-next.48
+  - @verdaccio/store@6.0.0-6-next.28
+  - @verdaccio/auth@6.0.0-6-next.27
+  - @verdaccio/config@6.0.0-6-next.48
+  - @verdaccio/utils@6.0.0-6-next.16
+  - @verdaccio/logger@6.0.0-6-next.16
+  - @verdaccio/middleware@6.0.0-6-next.27
+
+## 6.0.0-6-next.30
+
+### Patch Changes
+
+- @verdaccio/core@6.0.0-6-next.47
+- @verdaccio/config@6.0.0-6-next.47
+- @verdaccio/auth@6.0.0-6-next.26
+- @verdaccio/logger@6.0.0-6-next.15
+- @verdaccio/middleware@6.0.0-6-next.26
+- @verdaccio/store@6.0.0-6-next.27
+- @verdaccio/utils@6.0.0-6-next.15
+
+## 6.0.0-6-next.29
+
+### Patch Changes
+
+- b849128d: fix: handle upload scoped tarball
+- Updated dependencies [b849128d]
+  - @verdaccio/core@6.0.0-6-next.8
+  - @verdaccio/store@6.0.0-6-next.26
+  - @verdaccio/auth@6.0.0-6-next.25
+  - @verdaccio/config@6.0.0-6-next.17
+  - @verdaccio/logger@6.0.0-6-next.14
+  - @verdaccio/middleware@6.0.0-6-next.25
+  - @verdaccio/utils@6.0.0-6-next.14
+
+## 6.0.0-6-next.28
+
+### Patch Changes
+
+- 351aeeaa: fix(deps): @verdaccio/utils should be a prod dep of local-storage
+- Updated dependencies [351aeeaa]
+  - @verdaccio/auth@6.0.0-6-next.24
+  - @verdaccio/core@6.0.0-6-next.7
+  - @verdaccio/logger@6.0.0-6-next.13
+  - @verdaccio/store@6.0.0-6-next.25
+  - @verdaccio/middleware@6.0.0-6-next.24
+  - @verdaccio/config@6.0.0-6-next.16
+  - @verdaccio/utils@6.0.0-6-next.13
+
+## 6.0.0-6-next.27
+
+### Minor Changes
+
+- 37274e4c: feat: implement abbreviated manifest
+
+  Enable abbreviated manifest data by adding the header:
+
+  ```
+  curl -H "Accept: application/vnd.npm.install-v1+json" https://registry.npmjs.org/verdaccio
+  ```
+
+  It returns a filtered manifest, additionally includes the [time](https://github.com/pnpm/rfcs/pull/2) field by request.
+
+  Current support for packages managers:
+
+  - npm: yes
+  - pnpm: yes
+  - yarn classic: yes
+  - yarn modern (+2.x): [no](https://github.com/yarnpkg/berry/pull/3981#issuecomment-1076566096)
+
+  https://github.com/npm/registry/blob/master/docs/responses/package-metadata.md#abbreviated-metadata-format
+
+### Patch Changes
+
+- Updated dependencies [37274e4c]
+  - @verdaccio/store@6.0.0-6-next.24
+  - @verdaccio/auth@6.0.0-6-next.23
+  - @verdaccio/core@6.0.0-6-next.6
+  - @verdaccio/logger@6.0.0-6-next.12
+
+## 6.0.0-6-next.26
+
+### Major Changes
+
+- 292c0a37: feat!: replace deprecated request dependency by got
+
+  This is a big refactoring of the core, fetching dependencies, improve code, more tests and better stability. This is essential for the next release, will take some time but would allow modularize more the core.
+
+  ## Notes
+
+  - Remove deprecated `request` by other `got`, retry improved, custom Agent ( got does not include it built-in)
+  - Remove `async` dependency from storage (used by core) it was linked with proxy somehow safe to remove now
+  - Refactor with promises instead callback wherever is possible
+  - ~Document the API~
+  - Improve testing, integration tests
+  - Bugfix
+  - Clean up old validations
+  - Improve performance
+
+  ## 💥 Breaking changes
+
+  - Plugin API methods were callbacks based are returning promises, this will break current storage plugins, check documentation for upgrade.
+  - Write Tarball, Read Tarball methods parameters change, a new set of options like `AbortController` signals are being provided to the `addAbortSignal` can be internally used with Streams when a request is aborted. eg: `addAbortSignal(signal, fs.createReadStream(pathName));`
+  - `@verdaccio/streams` stream abort support is legacy is being deprecated removed
+  - Remove AWS and Google Cloud packages for future refactoring [#2574](https://github.com/verdaccio/verdaccio/pull/2574).
+
+### Minor Changes
+
+- 00d1d2a1: chore: env variable for launch fastify
+
+  - Update fastify to major release `v4.3.0`
+  - Update CLI launcher
+
+  via CLI
+
+  ```
+  VERDACCIO_SERVER=fastify verdaccio
+  ```
+
+  with docker
+
+  ```
+  docker run -it --rm --name verdaccio \
+    -e "VERDACCIO_SERVER=8080" -p 8080:8080 \
+    -e "VERDACCIO_SERVER=fastify" \
+    verdaccio/verdaccio
+  ```
+
+### Patch Changes
+
+- Updated dependencies [292c0a37]
+- Updated dependencies [a3a209b5]
+- Updated dependencies [00d1d2a1]
+  - @verdaccio/auth@6.0.0-6-next.23
+  - @verdaccio/config@6.0.0-6-next.15
+  - @verdaccio/core@6.0.0-6-next.6
+  - @verdaccio/logger@6.0.0-6-next.12
+  - @verdaccio/middleware@6.0.0-6-next.23
+  - @verdaccio/store@6.0.0-6-next.23
+  - @verdaccio/utils@6.0.0-6-next.12
+
+## 6.0.0-6-next.25
+
+### Patch Changes
+
+- Updated dependencies [d43894e8]
+- Updated dependencies [d08fe29d]
+  - @verdaccio/config@6.0.0-6-next.14
+  - @verdaccio/auth@6.0.0-6-next.22
+  - @verdaccio/hooks@6.0.0-6-next.13
+  - @verdaccio/store@6.0.0-6-next.22
+  - @verdaccio/core@6.0.0-6-next.5
+  - @verdaccio/logger@6.0.0-6-next.11
+  - @verdaccio/middleware@6.0.0-6-next.22
+
+## 6.0.0-6-next.24
+
+### Major Changes
+
+- 82cb0f2b: feat!: config.logs throw an error, logging config not longer accept array or logs property
+
+  ### 💥 Breaking change
+
+  This is valid
+
+  ```yaml
+  log: { type: stdout, format: pretty, level: http }
+  ```
+
+  This is invalid
+
+  ```yaml
+  logs: { type: stdout, format: pretty, level: http }
+  ```
+
+  or
+
+  ```yaml
+  logs:
+    - [{ type: stdout, format: pretty, level: http }]
+  ```
+
+### Minor Changes
+
+- 5167bb52: feat: ui search support for remote, local and private packages
+
+  The command `npm search` search globally and return all matches, with this improvement the user interface
+  is powered with the same capabilities.
+
+  The UI also tag where is the origin the package with a tag, also provide the latest version and description of the package.
+
+### Patch Changes
+
+- Updated dependencies [82cb0f2b]
+- Updated dependencies [5167bb52]
+  - @verdaccio/config@6.0.0-6-next.13
+  - @verdaccio/core@6.0.0-6-next.5
+  - @verdaccio/logger@6.0.0-6-next.11
+  - @verdaccio/store@6.0.0-6-next.21
+  - @verdaccio/auth@6.0.0-6-next.21
+  - @verdaccio/hooks@6.0.0-6-next.13
+  - @verdaccio/middleware@6.0.0-6-next.21
+  - @verdaccio/utils@6.0.0-6-next.11
+
+## 6.0.0-6-next.23
+
+### Patch Changes
+
+- @verdaccio/auth@6.0.0-6-next.20
+- @verdaccio/store@6.0.0-6-next.20
+- @verdaccio/hooks@6.0.0-6-next.12
+- @verdaccio/middleware@6.0.0-6-next.20
+
+## 6.0.0-6-next.22
+
+### Patch Changes
+
+- Updated dependencies [aeff267d]
+  - @verdaccio/auth@6.0.0-6-next.19
+  - @verdaccio/hooks@6.0.0-6-next.12
+  - @verdaccio/middleware@6.0.0-6-next.19
+
+## 6.0.0-6-next.21
+
+### Patch Changes
+
+- Updated dependencies [b78f3525]
+  - @verdaccio/logger@6.0.0-6-next.10
+  - @verdaccio/auth@6.0.0-6-next.18
+  - @verdaccio/hooks@6.0.0-6-next.12
+  - @verdaccio/middleware@6.0.0-6-next.18
+  - @verdaccio/store@6.0.0-6-next.19
+
+## 6.0.0-6-next.20
+
+### Patch Changes
+
+- Updated dependencies [730b5d8c]
+  - @verdaccio/logger@6.0.0-6-next.9
+  - @verdaccio/auth@6.0.0-6-next.17
+  - @verdaccio/hooks@6.0.0-6-next.11
+  - @verdaccio/middleware@6.0.0-6-next.17
+  - @verdaccio/store@6.0.0-6-next.18
+
+## 6.0.0-6-next.19
+
+### Major Changes
+
+- a828271d: refactor: download manifest endpoint and integrate fastify
+
+  Much simpler API for fetching a package
+
+  ```
+   const manifest = await storage.getPackageNext({
+        name,
+        uplinksLook: true,
+        req,
+        version: queryVersion,
+        requestOptions,
+   });
+  ```
+
+  > not perfect, the `req` still is being passed to the proxy (this has to be refactored at proxy package) and then removed from here, in proxy we pass the request instance to the `request` library.
+
+  ### Details
+
+  - `async/await` sugar for getPackage()
+  - Improve and reuse code between current implementation and new fastify endpoint (add scaffolding for request manifest)
+  - Improve performance
+  - Add new tests
+
+  ### Breaking changes
+
+  All storage plugins will stop to work since the storage uses `getPackageNext` method which is Promise based, I won't replace this now because will force me to update all plugins, I'll follow up in another PR. Currently will throw http 500
+
+### Minor Changes
+
+- 24b9be02: refactor: improve docker image build with strict dependencies and prod build
+- b13a3fef: refactor: improve versions and dist-tag filters
+
+### Patch Changes
+
+- Updated dependencies [a828271d]
+- Updated dependencies [24b9be02]
+- Updated dependencies [e75c0a3b]
+- Updated dependencies [b13a3fef]
+  - @verdaccio/store@6.0.0-6-next.17
+  - @verdaccio/utils@6.0.0-6-next.10
+  - @verdaccio/core@6.0.0-6-next.4
+  - @verdaccio/middleware@6.0.0-6-next.16
+  - @verdaccio/logger@6.0.0-6-next.8
+  - @verdaccio/auth@6.0.0-6-next.16
+  - @verdaccio/config@6.0.0-6-next.12
+  - @verdaccio/hooks@6.0.0-6-next.10
+
+## 6.0.0-6-next.18
+
+### Patch Changes
+
+- Updated dependencies [f86c31ed]
+- Updated dependencies [20c9e43e]
+  - @verdaccio/store@6.0.0-6-next.16
+  - @verdaccio/utils@6.0.0-6-next.9
+  - @verdaccio/auth@6.0.0-6-next.15
+  - @verdaccio/config@6.0.0-6-next.11
+  - @verdaccio/tarball@11.0.0-6-next.10
+  - @verdaccio/middleware@6.0.0-6-next.15
+  - @verdaccio/hooks@6.0.0-6-next.9
+
+## 6.0.0-6-next.17
+
+### Patch Changes
+
+- Updated dependencies [6c1eb021]
+  - @verdaccio/core@6.0.0-6-next.3
+  - @verdaccio/logger@6.0.0-6-next.7
+  - @verdaccio/auth@6.0.0-6-next.14
+  - @verdaccio/config@6.0.0-6-next.10
+  - @verdaccio/tarball@11.0.0-6-next.9
+  - @verdaccio/hooks@6.0.0-6-next.9
+  - @verdaccio/middleware@6.0.0-6-next.14
+  - @verdaccio/store@6.0.0-6-next.15
+  - @verdaccio/utils@6.0.0-6-next.8
+
+## 6.0.0-6-next.16
+
+### Major Changes
+
+- 794af76c: Remove Node 12 support
+
+  - We need move to the new `undici` and does not support Node.js 12
+
+### Minor Changes
+
+- b702ea36: abort search request support for proxy
+- 154b2ecd: refactor: remove @verdaccio/commons-api in favor @verdaccio/core and remove duplications
+
+### Patch Changes
+
+- Updated dependencies [794af76c]
+- Updated dependencies [b702ea36]
+- Updated dependencies [154b2ecd]
+  - @verdaccio/auth@6.0.0-6-next.13
+  - @verdaccio/config@6.0.0-6-next.9
+  - @verdaccio/core@6.0.0-6-next.2
+  - @verdaccio/tarball@11.0.0-6-next.8
+  - @verdaccio/hooks@6.0.0-6-next.8
+  - @verdaccio/logger@6.0.0-6-next.6
+  - @verdaccio/middleware@6.0.0-6-next.13
+  - @verdaccio/store@6.0.0-6-next.14
+  - @verdaccio/utils@6.0.0-6-next.7
+
+## 6.0.0-6-next.15
+
+### Patch Changes
+
+- Updated dependencies [2c594910]
+  - @verdaccio/logger@6.0.0-6-next.5
+  - @verdaccio/auth@6.0.0-6-next.12
+  - @verdaccio/hooks@6.0.0-6-next.7
+  - @verdaccio/middleware@6.0.0-6-next.12
+  - @verdaccio/store@6.0.0-6-next.13
+
+## 6.0.0-6-next.14
+
+### Major Changes
+
+- 459b6fa7: refactor: search v1 endpoint and local-database
+
+  - refactor search `api v1` endpoint, improve performance
+  - remove usage of `async` dependency https://github.com/verdaccio/verdaccio/issues/1225
+  - refactor method storage class
+  - create new module `core` to reduce the ammount of modules with utilities
+  - use `undici` instead `node-fetch`
+  - use `fastify` instead `express` for functional test
+
+  ### Breaking changes
+
+  - plugin storage API changes
+  - remove old search endpoint (return 404)
+  - filter local private packages at plugin level
+
+  The storage api changes for methods `get`, `add`, `remove` as promise base. The `search` methods also changes and recieves a `query` object that contains all query params from the client.
+
+  ```ts
+  export interface IPluginStorage<T> extends IPlugin {
+    add(name: string): Promise<void>;
+    remove(name: string): Promise<void>;
+    get(): Promise<any>;
+    init(): Promise<void>;
+    getSecret(): Promise<string>;
+    setSecret(secret: string): Promise<any>;
+    getPackageStorage(packageInfo: string): IPackageStorage;
+    search(query: searchUtils.SearchQuery): Promise<searchUtils.SearchItem[]>;
+    saveToken(token: Token): Promise<any>;
+    deleteToken(user: string, tokenKey: string): Promise<any>;
+    readTokens(filter: TokenFilter): Promise<Token[]>;
+  }
+  ```
+
+### Patch Changes
+
+- Updated dependencies [459b6fa7]
+  - @verdaccio/auth@6.0.0-6-next.11
+  - @verdaccio/config@6.0.0-6-next.8
+  - @verdaccio/commons-api@11.0.0-6-next.4
+  - @verdaccio/core@6.0.0-6-next.1
+  - @verdaccio/hooks@6.0.0-6-next.6
+  - @verdaccio/store@6.0.0-6-next.12
+  - @verdaccio/utils@6.0.0-6-next.6
+  - @verdaccio/middleware@6.0.0-6-next.11
+  - @verdaccio/tarball@11.0.0-6-next.7
+  - @verdaccio/logger@6.0.0-6-next.4
+
+## 6.0.0-6-next.13
+
+### Patch Changes
+
+- Updated dependencies [df0da3d6]
+  - @verdaccio/hooks@6.0.0-6-next.5
+  - @verdaccio/auth@6.0.0-6-next.10
+  - @verdaccio/store@6.0.0-6-next.11
+  - @verdaccio/middleware@6.0.0-6-next.10
+
+## 6.0.0-6-next.12
+
+### Patch Changes
+
+- Updated dependencies [d2c65da9]
+  - @verdaccio/utils@6.0.0-6-next.5
+  - @verdaccio/auth@6.0.0-6-next.9
+  - @verdaccio/config@6.0.0-6-next.7
+  - @verdaccio/tarball@11.0.0-6-next.6
+  - @verdaccio/middleware@6.0.0-6-next.9
+  - @verdaccio/store@6.0.0-6-next.10
+  - @verdaccio/hooks@6.0.0-6-next.4
+
+## 6.0.0-6-next.11
+
+### Patch Changes
+
+- Updated dependencies [5ddfa526]
+  - @verdaccio/store@6.0.0-6-next.9
+
+## 6.0.0-6-next.10
+
+### Patch Changes
+
+- Updated dependencies [1b217fd3]
+  - @verdaccio/config@6.0.0-6-next.6
+  - @verdaccio/auth@6.0.0-6-next.8
+  - @verdaccio/hooks@6.0.0-6-next.4
+  - @verdaccio/store@6.0.0-6-next.8
+  - @verdaccio/middleware@6.0.0-6-next.8
+
+## 6.0.0-6-next.9
+
+### Patch Changes
+
+- Updated dependencies [1810ed0d]
+- Updated dependencies [648575aa]
+  - @verdaccio/config@6.0.0-6-next.5
+  - @verdaccio/tarball@11.0.0-6-next.5
+  - @verdaccio/utils@6.0.0-6-next.4
+  - @verdaccio/auth@6.0.0-6-next.7
+  - @verdaccio/hooks@6.0.0-6-next.4
+  - @verdaccio/store@6.0.0-6-next.7
+  - @verdaccio/middleware@6.0.0-6-next.7
+
+## 6.0.0-6-next.8
+
+### Patch Changes
+
+- Updated dependencies [5c5057fc]
+  - @verdaccio/config@6.0.0-6-next.4
+  - @verdaccio/logger@6.0.0-6-next.4
+  - @verdaccio/auth@6.0.0-6-next.6
+  - @verdaccio/hooks@6.0.0-6-next.4
+  - @verdaccio/store@6.0.0-6-next.6
+  - @verdaccio/tarball@11.0.0-6-next.4
+  - @verdaccio/middleware@6.0.0-6-next.6
+
+## 6.0.0-6-next.7
+
+### Patch Changes
+
+- Updated dependencies [cb2281a5]
+  - @verdaccio/store@6.0.0-6-next.5
+  - @verdaccio/tarball@11.0.0-6-next.4
+
+## 5.0.0-alpha.6
+
+### Patch Changes
+
+- @verdaccio/auth@5.0.0-alpha.5
+- @verdaccio/hooks@5.0.0-alpha.3
+- @verdaccio/middleware@5.0.0-alpha.5
+
+## 5.0.0-alpha.5
+
+### Patch Changes
+
+- Updated dependencies [f8a50baa]
+  - @verdaccio/auth@5.0.0-alpha.4
+  - @verdaccio/hooks@5.0.0-alpha.3
+  - @verdaccio/middleware@5.0.0-alpha.4
+
+## 5.0.0-alpha.4
+
+### Patch Changes
+
+- fecbb9be: chore: add release step to private regisry on merge changeset pr
+- Updated dependencies [fecbb9be]
+  - @verdaccio/auth@5.0.0-alpha.3
+  - @verdaccio/config@5.0.0-alpha.3
+  - @verdaccio/commons-api@10.0.0-alpha.3
+  - @verdaccio/hooks@5.0.0-alpha.3
+  - @verdaccio/logger@5.0.0-alpha.3
+  - @verdaccio/middleware@5.0.0-alpha.3
+  - @verdaccio/store@5.0.0-alpha.4
+  - @verdaccio/utils@5.0.0-alpha.3
+
+## 5.0.0-alpha.3
+
+### Minor Changes
+
+- 54c58d1e: feat: add server rate limit protection to all request
+
+  To modify custom values, use the server settings property.
+
+  ```markdown
+  server:
+
+  ## https://www.npmjs.com/package/express-rate-limit#configuration-options
+
+  rateLimit:
+  windowMs: 1000
+  max: 10000
+  ```
+
+  The values are intended to be high, if you want to improve security of your server consider
+  using different values.
+
+### Patch Changes
+
+- Updated dependencies [54c58d1e]
+  - @verdaccio/auth@5.0.0-alpha.2
+  - @verdaccio/config@5.0.0-alpha.2
+  - @verdaccio/commons-api@10.0.0-alpha.2
+  - @verdaccio/hooks@5.0.0-alpha.2
+  - @verdaccio/logger@5.0.0-alpha.2
+  - @verdaccio/middleware@5.0.0-alpha.2
+  - @verdaccio/store@5.0.0-alpha.3
+  - @verdaccio/utils@5.0.0-alpha.2
+
+## 5.0.0-alpha.2
+
+### Minor Changes
+
+- 2a327c4b: feat: remove level dependency by lowdb for npm token cli as storage
+
+  ### new npm token database
+
+  There will be a new database located in your storage named `.token-db.json` which
+  will store all references to created tokens, **it does not store tokens**, just
+  mask of them and related metadata required to reference them.
+
+  #### Breaking change
+
+  If you were relying on `npm token` experiment. This PR will replace the
+  used database (level) by a json plain based one (lowbd) which does not
+  require Node.js C++ compilation step and has less dependencies. Since was
+  a experiment there is no migration step.
+
+### Patch Changes
+
+- @verdaccio/store@5.0.0-alpha.2
+
+## 5.0.0-alpha.1
+
+### Major Changes
+
+- d87fa026: feat!: experiments config renamed to flags
+
+  - The `experiments` configuration is renamed to `flags`. The functionality is exactly the same.
+
+  ```js
+  flags: token: false;
+  search: false;
+  ```
+
+  - The `self_path` property from the config file is being removed in favor of `config_file` full path.
+  - Refactor `config` module, better types and utilities
+
+- da1ee9c8: - Replace signature handler for legacy tokens by removing deprecated crypto.createDecipher by createCipheriv
+
+  - Introduce environment variables for legacy tokens
+
+  ### Code Improvements
+
+  - Add debug library for improve developer experience
+
+  ### Breaking change
+
+  - The new signature invalidates all previous tokens generated by Verdaccio 4 or previous versions.
+  - The secret key must have 32 characters long.
+
+  ### New environment variables
+
+  - `VERDACCIO_LEGACY_ALGORITHM`: Allows to define the specific algorithm for the token signature which by default is `aes-256-ctr`
+  - `VERDACCIO_LEGACY_ENCRYPTION_KEY`: By default, the token stores in the database, but using this variable allows to get it from memory
+
+### Minor Changes
+
+- 26b494cb: feat: add typescript project references settings
+
+  Reading https://ebaytech.berlin/optimizing-multi-package-apps-with-typescript-project-references-d5c57a3b4440 I realized I can use project references to solve the issue to pre-compile modules on develop mode.
+
+  It allows to navigate (IDE) trough the packages without need compile the packages.
+
+  Add two `tsconfig`, one using the previous existing configuration that is able to produce declaration files (`tsconfig.build`) and a new one `tsconfig` which is enables [_projects references_](https://www.typescriptlang.org/docs/handbook/project-references.html).
+
+### Patch Changes
+
+- b57b4338: Enable prerelease mode with **changesets**
+- 42dfed78: testing changesets
+- 31af0164: ESLint Warnings Fixed
+
+  Related to issue #1461
+
+  - max-len: most of the sensible max-len errors are fixed
+  - no-unused-vars: most of these types of errors are fixed by deleting not needed declarations
+  - @typescript-eslint/no-unused-vars: same as above
+
+- Updated dependencies [d87fa026]
+- Updated dependencies [42024c34]
+- Updated dependencies [da1ee9c8]
+- Updated dependencies [ae52ba35]
+- Updated dependencies [26b494cb]
+- Updated dependencies [b57b4338]
+- Updated dependencies [add778d5]
+- Updated dependencies [31af0164]
+  - @verdaccio/auth@5.0.0-alpha.1
+  - @verdaccio/config@5.0.0-alpha.1
+  - @verdaccio/commons-api@10.0.0-alpha.1
+  - @verdaccio/hooks@5.0.0-alpha.1
+  - @verdaccio/logger@5.0.0-alpha.1
+  - @verdaccio/middleware@5.0.0-alpha.1
+  - @verdaccio/store@5.0.0-alpha.1
+  - @verdaccio/utils@5.0.0-alpha.1
+
+## 5.0.0-alpha.1
+
+### Major Changes
+
+- d87fa0268: feat!: experiments config renamed to flags
+
+  - The `experiments` configuration is renamed to `flags`. The functionality is exactly the same.
+
+  ```js
+  flags: token: false;
+  search: false;
+  ```
+
+  - The `self_path` property from the config file is being removed in favor of `config_file` full path.
+  - Refactor `config` module, better types and utilities
+
+- da1ee9c82: - Replace signature handler for legacy tokens by removing deprecated crypto.createDecipher by createCipheriv
+
+  - Introduce environment variables for legacy tokens
+
+  ### Code Improvements
+
+  - Add debug library for improve developer experience
+
+  ### Breaking change
+
+  - The new signature invalidates all previous tokens generated by Verdaccio 4 or previous versions.
+  - The secret key must have 32 characters long.
+
+  ### New environment variables
+
+  - `VERDACCIO_LEGACY_ALGORITHM`: Allows to define the specific algorithm for the token signature which by default is `aes-256-ctr`
+  - `VERDACCIO_LEGACY_ENCRYPTION_KEY`: By default, the token stores in the database, but using this variable allows to get it from memory
+
+### Minor Changes
+
+- 26b494cbd: feat: add typescript project references settings
+
+  Reading https://ebaytech.berlin/optimizing-multi-package-apps-with-typescript-project-references-d5c57a3b4440 I realized I can use project references to solve the issue to pre-compile modules on develop mode.
+
+  It allows to navigate (IDE) trough the packages without need compile the packages.
+
+  Add two `tsconfig`, one using the previous existing configuration that is able to produce declaration files (`tsconfig.build`) and a new one `tsconfig` which is enables [_projects references_](https://www.typescriptlang.org/docs/handbook/project-references.html).
+
+### Patch Changes
+
+- b57b43388: Enable prerelease mode with **changesets**
+- 42dfed785: testing changesets
+- 31af01641: ESLint Warnings Fixed
+
+  Related to issue #1461
+
+  - max-len: most of the sensible max-len errors are fixed
+  - no-unused-vars: most of these types of errors are fixed by deleting not needed declarations
+  - @typescript-eslint/no-unused-vars: same as above
+
+- Updated dependencies [d87fa0268]
+- Updated dependencies [42024c346]
+- Updated dependencies [da1ee9c82]
+- Updated dependencies [ae52ba352]
+- Updated dependencies [26b494cbd]
+- Updated dependencies [b57b43388]
+- Updated dependencies [add778d55]
+- Updated dependencies [31af01641]
+  - @verdaccio/auth@5.0.0-alpha.1
+  - @verdaccio/config@5.0.0-alpha.1
+  - @verdaccio/commons-api@10.0.0-alpha.0
+  - @verdaccio/hooks@5.0.0-alpha.1
+  - @verdaccio/logger@5.0.0-alpha.1
+  - @verdaccio/middleware@5.0.0-alpha.1
+  - @verdaccio/store@5.0.0-alpha.1
+  - @verdaccio/utils@5.0.0-alpha.1

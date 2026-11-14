@@ -1,0 +1,11 @@
+# require('customprefix-auth') as dependency
+#
+# "devDependencies": {
+#   "customprefix-auth": "workspace:2.0.0"
+# }
+auth:
+  auth:
+    enabled: true
+
+server:
+  pluginPrefix: customprefix

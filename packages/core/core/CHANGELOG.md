@@ -1,0 +1,1028 @@
+# @verdaccio/core
+
+## 9.0.0-next-9.44
+
+No changes in this release.
+
+## 9.0.0-next-9.43
+
+### Minor Changes
+
+- aeaf4d8: Make `npm audit signatures` work through Verdaccio for packages proxied from an uplink, behind the experimental `flags.signatures` setting.
+  
+  Verdaccio already kept the `dist.signatures` and `dist.attestations` fields that registry.npmjs.org attaches to every version, but it did not serve the two routes the npm CLI reads to verify them. npm resolves signing keys by registry host, so against Verdaccio it requested `GET /-/npm/v1/keys`, received a 404 and aborted the whole command with `EMISSINGSIGNATUREKEY` on the first package coming from npmjs. Attestation bundles are fetched from the registry the package was installed from as well, so `GET /-/npm/v1/attestations/<name>@<version>` also returned 404.
+  
+  Both routes now exist when `flags.signatures: true` is set in the configuration (the feature is experimental and may change). `GET /-/npm/v1/keys` returns the signing keys of every configured uplink merged by key id (refreshed hourly) and answers 404 when none publishes keys. `GET /-/npm/v1/attestations/<name>@<version>` relays the attestations from the first uplink that proxies the package, applying the package `access` rules, and answers 404 when the uplink has none. With this `npm audit signatures` verifies registry signatures and provenance attestations of proxied packages exactly as it does against registry.npmjs.org. Enable it with:
+  
+  ```yaml
+  flags:
+    signatures: true
+  ```
+  
+  Packages published to Verdaccio itself are not signed yet. npm treats any registry that publishes keys as a registry whose packages should all be signed, so once the flag is on `npm audit signatures` lists every locally published package as having a missing registry signature and exits with code 1; proxied packages verify, local ones are reported. Keep the flag off if that report would break a CI gate, until Verdaccio signs local packages. `npm publish --provenance` is still rejected.
+
+## 9.0.0-next-9.42
+
+### Patch Changes
+
+- 1d1ba47: Fix HTTP 500 responses for package requests when an installation forces minimatch 11. The access-rule matcher called the removed `makeRe` API. Use the supported matching API while retaining case-insensitive package access rules and first-match precedence.
+  
+  On the master and 7.x release lines, affected `@verdaccio/core` releases are `9.0.0-next-9.0` through `9.0.0-next-9.41`. Verdaccio releases using these modules include `9.0.0-next-9.0` through `9.0.0-next-9.41` and stable releases `7.0.0` through `7.0.2`. The affected 7.x prereleases using these modules are `7.0.0-beta.4`, `7.0.0-beta.6`, and `7.0.0-next-7.21` through `7.0.0-next-7.32`.
+  
+  The failure requires an override or resolution that replaces the declared minimatch dependency with version 11; default installations of those releases are not affected. Upgrade to a Verdaccio release containing the corrected core module before forcing minimatch 11.
+  
+  Update the package filter's direct minimatch dependency as well. Existing package access and filter configuration does not need to change.
+
+## 9.0.0-next-9.41
+
+No changes in this release.
+
+## 9.0.0-next-9.40
+
+No changes in this release.
+
+## 9.0.0-next-9.39
+
+No changes in this release.
+
+## 9.0.0-next-9.38
+
+No changes in this release.
+
+## 9.0.0-next-9.37
+
+### Minor Changes
+
+- c2eafec: Add `GET /-/package/{package-name}/version/{version}/status` for authenticated users with publish access. The response contains `packageName`, `version`, and `status` (`published` or `staged`). Invalid names and non-exact versions return 400 before authentication; missing credentials return 401, and missing versions or denied package access return the same 404.
+  
+  Published versions are resolved from local metadata (including cached metadata), with manifest filters applied, without contacting uplinks. Staged versions are available when `flags.stage` is enabled; the endpoint also works for published versions with staging disabled. This is a local view, not a live status query to upstream registries.
+  
+  Verdaccio does not track automated validation, moderation, or deletion history, so it does not emit `validating`, `blocked`, or `deleted`. Versions no longer present locally or in staging return 404. No storage migration is required.
+  
+  Staged version listings and details also include `status: "staged"`, allowing npm stage clients to display that the version is ready for maintainer review. Existing records receive this field when read.
+
+### Patch Changes
+
+- 4a483d0: Move the Change Password option from the login form to the signed-in user's account menu.
+  
+  When `flags.changePassword` is enabled, users can now open the password change form from their account menu. Previously, the link appeared in the login form even though changing a password requires an authenticated session. The option remains hidden when the feature is disabled.
+  
+  Opening the password change URL without a session now displays a sign-in dialog explaining that authentication is required. Successful sign-in returns users to the form at the same URL. If the server rejects an expired session, the form is cleared and sign-in is requested again.
+  
+  The password change form no longer asks for a username. The authenticated session determines which account is updated; users enter only their current password, new password and confirmation.
+  
+  An incorrect current password submitted through the web form (`PUT /-/verdaccio/sec/reset_password`) now returns HTTP 400 with `invalid old password` when using the bundled htpasswd or auth-memory plugin. Previously it returned a generic HTTP 500. The form displays a translated field error and keeps the session open so the user can correct the password. Unexpected plugin and storage failures on that endpoint still return a generic HTTP 500.
+  
+  `npm profile set password` (`POST /-/npm/v1/user`) still returns HTTP 403 for an incorrect current password, as do plugin and storage failures on that endpoint, but the message is now `invalid old password` instead of `Unable to change password for user '<name>': invalid old password`.
+- 8a6e1a1: Update runtime dependencies across the registry and run the official Docker image on Node.js 26.
+  
+  The Docker image now builds and runs on `node:26-alpine`, the Node.js line that becomes Active LTS on 28 October 2026; Node.js 24 entered maintenance on 20 October. Operators who extend the image should check that any native addons they install support Node.js 26.
+  
+  The uplink, notification and audit HTTP client moves to `got` 16. Verdaccio does not use the options removed in that release (the HTTP/2 agent slot, `dnsCache` and the old `auth` stubs), so uplink configuration, `agent_options` and `https_proxy` behave as before. Uplink responses with an error status, such as a 404 for a package the uplink does not have, keep appearing in the `http` log as they did with `got` 15. The CLI moves to `chalk` 6 and the web UI's README renderer to `marked` 18.
+  
+  The remaining updates are minor or patch releases: `express` 5.3.0 in every package that serves HTTP, `express-rate-limit` 8.7.1, `pino` 10.4.0, `js-yaml` 5.5.0, `tar-stream` 3.2.2, `sanitize-filename` 1.6.4, `process-warning` 5.1.1 and `memfs` 4.80.0. No configuration changes are required.
+
+## 9.0.0-next-9.36
+
+No changes in this release.
+
+## 9.0.0-next-9.35
+
+### Patch Changes
+
+- 1693358: Improve request validation when changing passwords through the web API.
+  
+  Password changes validate the supplied credential fields before invoking the authentication plugin and retain the configured policy for new passwords. Existing passwords remain eligible for replacement even when they do not meet the current policy. No configuration changes are required.
+
+## 9.0.0-next-9.34
+
+### Patch Changes
+
+- 83eb46c: fix(store): enforce `publish.check_owners` on deprecate, version unpublish and dist-tags
+  
+  `npm deprecate`, version-level unpublish and dist-tag changes all mutate the package through the store without the store-level ownership check used by publish, owner changes, tarball removal, and package removal. With `unpublish: $authenticated`, that check is the only owner protection on these routes.
+  
+  - `deprecate` and `unPublishAPackage` now run the ownership check against the stored manifest before applying the change; the package name is always taken from the request URL, never from the request body.
+  - `mergeTagsNext` (dist-tag add/rm) now runs the ownership check as well.
+  - `changePackage` no longer wipes the stored `maintainers` list when the request body omits it (e.g. deprecate bodies), which previously turned the ownership check into a no-op for that package.
+  - Cached manifests of proxied packages now record the upstream maintainers, so the ownership check also protects them (they were created with an empty list, which skips the check).
+  - `changePackage` rejects bodies whose `_rev` is missing or empty (422) or does not match the stored revision (409); a deprecate without a revision, or with a stale one, no longer silently drops concurrently published versions, and a stale version unpublish no longer reports success without applying (which made npm delete the tarball anyway). Empty `_rev` is also rejected by the unpublish body schema.
+  - `changeOwners` keeps the request body's `_rev` when calling `changePackage` instead of substituting the latest local revision, so a concurrent owner update with a stale revision is rejected rather than overwriting the other change.
+  - The owner pre-check on `GET /:package?write=true` now actually runs (it read a request option that was never set) and returns 403 instead of wrapping it into a 400.
+  - fix(local-storage): errors thrown by the `updatePackage` handler are no longer masked as `resource temporarily unavailable` after unlocking; the original error (403 forbidden, 404 unknown tag version, 409 conflict) reaches the client.
+- 0cac607: Align package name validation with npm.
+  
+  `@verdaccio/core` now includes `validatePackageName`, which returns whether a name follows the npm package name rules for existing packages. `validatePackage` uses it, so it now also rejects names that start with an underscore, contain characters that are not URL-friendly, or use `@` without a scope. Names with capital letters, names longer than 214 characters and names that start with a hyphen remain valid, so existing packages can still be served. `validateName`, used for route parameters such as versions, dist-tags and tarball file names, does not change.
+  
+  `@verdaccio/local-storage` only provides storage when the package folder matches the package name exactly.
+  
+  Requests that use such names are rejected as invalid (HTTP 400). Registry configuration does not need to change.
+- b6cc475: Validate every segment of scoped names in `validateName`, using the same rules as `validatePackage`.
+
+## 9.0.0-next-9.33
+
+## 9.0.0-next-9.32
+
+### Patch Changes
+
+- 59f1350: Validate package versions before combining search results. Paginated searches return 503 for malformed uplink versions instead of returning invalid results or failing with 500. Invalid local and legacy search entries are omitted. Preserve support for legacy version formats and return their original spelling while comparing versions consistently. When a local package and an uplink report the same version in different spellings, the local entry and its metadata are kept; only a strictly newer version replaces it.
+
+## 9.0.0-next-9.31
+
+### Patch Changes
+
+- c2b5897: Omit placeholder links from local Search v1 results while preserving real package links.
+- 68ab0d4: Include the latest package version license in local npm Search v1 results.
+- c52b632: fix: stop synthesizing scope in local npm search results
+  
+  Local `/-/v1/search` results no longer include the undocumented `package.scope` field. Scoped
+  package names remain complete in `package.name` (for example, `@scope/package`), while optional
+  fields received from uplink registries continue to pass through unchanged. `scope` is now optional
+  in `SearchPackageBody` for compatibility with remote result shapes and existing integrations.
+- 7054084: fix: tarball download reliability — uplink selection, no client hangs, content-length, npmjs parity
+  
+  - **store**: tarballs with a missing `_distfiles` record no longer 404 forever —
+    `lookupDistFile` falls back to the version's own dist metadata (conventional
+    `<name>-<version>.tgz` fast path, then a full scan that also resolves
+    bare-digest tarball urls). The uplink for a tarball is now the one that
+    actually serves it (recorded on the distfile, or matched by url on a path
+    segment boundary) instead of the last configured match, so credentials of an
+    unrelated uplink are never sent to it.
+  - **api/middleware**: when a tarball stream fails after the response headers
+    were already sent (eg. the uplink dropped the connection mid-download), the
+    response is destroyed so the client sees the failure immediately instead of
+    hanging forever; when it fails before headers are sent, the error body is
+    served as JSON like registry.npmjs.org.
+  - **proxy**: the got retry limit is no longer derived from `max_fails` (the
+    circuit-breaker threshold) — a high `max_fails` multiplied every uplink
+    timeout, so a slow uplink could block requests almost indefinitely. Retries
+    have their own `retry` uplink setting (default 2, matching got).
+  - **store**: the abbreviated manifest (`application/vnd.npm.install-v1+json`)
+    no longer includes `readme`, `readmeFilename`, `_id` and `_rev`, matching
+    the npm registry contract.
+  - **store/server**: tarball responses now carry a `Content-Length` header (the
+    `content-length` event was swallowed by the stream wrapper) and are no
+    longer re-gzipped by the compression middleware for gzip-accepting clients —
+    npm and undici accept gzip by default, so every (already gzipped) `.tgz`
+    download paid CPU for nothing. JSON metadata responses stay compressed.
+  - **core**: the `application/octet-stream` constant no longer carries a
+    spurious `charset=utf-8`, matching registry.npmjs.org.
+- cf15239: chore(core): refactor error/searchUtils
+
+## 9.0.0-next-9.30
+
+## 9.0.0-next-9.29
+
+### Minor Changes
+
+- 30601b3: feat: staged publishing (`npm stage`) behind the `stage` flag
+
+  Adds the `/-/stage` endpoints so a package version can be uploaded for review and
+  only becomes installable once a maintainer approves it. Everything is gated by
+  the new `stage` feature flag, which defaults to `false`.
+
+  ```yaml
+  flags:
+    stage: true
+  ```
+
+  The whole `npm stage` family is supported — `publish`, `list`, `view`,
+  `download`, `approve` and `reject` — verified end to end against npm 11.17.
+  Staging never asks for a one-time password: deferring proof of presence to
+  approval time is the point of the flow, which lets a pipeline prepare a release
+  that a human approves later.
+
+  Package access gains a `stage` entry deciding who may submit a version for
+  review:
+
+  ```yaml
+  packages:
+    "my-company-*":
+      access: $authenticated
+      stage: developers
+      publish: release-managers
+  ```
+
+  It falls back to `publish` when omitted, exactly as `unpublish` already does, so
+  existing configurations are unaffected. Granting it to a group that lacks
+  `publish` is what turns review into a real gate: those users can propose a
+  release but neither publish one directly nor approve their own submission, though
+  they can always withdraw it. Auth plugins can implement `allow_stage`; returning
+  `undefined` defers to `allow_publish`.
+
+  Staging fires a notification with `publishType: 'stage'` and rejecting fires
+  `unstage`, so a staged version no longer waits unnoticed until somebody runs
+  `npm stage list`. Approving keeps reporting `publish`, because that is what it
+  does.
+
+  Staged items are persisted through the storage plugin interface, so any storage
+  plugin works unchanged, and the namespace is never registered in the plugin
+  database — staged versions stay out of search and the package list.
+
+  The web UI gains a "Staged packages" view (list, detail, approve, reject,
+  download) that appears only while the flag is on.
+
+## 9.0.0-next-9.28
+
+### Patch Changes
+
+- dd4f91c: Reject package names with extra path separators in `validatePackage`
+
+  `validatePackage` split the name with a limit, which ignored any separators past
+  the second segment and accepted non-canonical names such as `@scope/pkg/`. The
+  name is now split on every separator and only one- or two-segment names are
+  considered valid, so a package name has a single canonical form.
+
+## 9.0.0-next-9.27
+
+## 9.0.0-next-9.26
+
+## 9.0.0-next-9.25
+
+## 9.0.0-next-9.24
+
+## 9.0.0-next-9.23
+
+### Patch Changes
+
+- 5ec045c: Match package names case-insensitively in `getMatchedPackagesSpec` so access, publish and unpublish rules apply consistently to every casing of a package name.
+
+## 9.0.0-next-9.22
+
+### Patch Changes
+
+- c499c4e: fix: refactor parsing of req.params
+
+## 9.0.0-next-9.21
+
+### Patch Changes
+
+- 5aa8cca: fix(middleware): logging aborted requests
+
+## 9.0.0-next-9.20
+
+## 9.0.0-next-9.19
+
+### Patch Changes
+
+- 47f122f: chore(deps): clean-up unused and duplicates
+
+## 9.0.0-next-9.18
+
+### Patch Changes
+
+- 62ebd31: fix: enforce generated npm token metadata
+
+  Generated npm tokens (`POST /-/npm/v1/tokens`) stored their `readonly` and
+  `cidr_whitelist` restrictions but never enforced them, and deleting a token did
+  not revoke it for the package APIs. A token marked read-only or pinned to a CIDR
+  range could still publish packages and change dist-tags, and a deleted token
+  remained usable.
+
+  Generated tokens now embed a server-issued key (in the JWT claim, or in the
+  encrypted legacy AES payload), and a new `enforceGeneratedTokenMetadata`
+  middleware looks that key up on each request and rejects the token when it is
+  missing/revoked, used outside its CIDR whitelist, or used for a write while
+  read-only. Enforcement applies to both AES and JWT API-token modes.
+
+  Note: tokens issued before upgrading carry no key and are not retroactively
+  constrained — regenerate them to apply the restrictions. Web UI enforcement of
+  generated-token metadata is tracked as a follow-up.
+
+- e8421bd: chore: format code
+- d9203d0: fix(core): password regex validation
+
+## 9.0.0-next-9.17
+
+### Patch Changes
+
+- 6408a85: chore: force release
+
+## 9.0.0-next-9.16
+
+### Patch Changes
+
+- 66f7e61: feat(web): add config for asset folder
+- cdf3150: fix: refactor unit test
+
+## 9.0.0-next-9.15
+
+## 9.0.0-next-9.14
+
+## 9.0.0-next-9.13
+
+### Patch Changes
+
+- 39c369e: chore(core): remove duplicate mergeVersions
+
+## 9.0.0-next-9.12
+
+## 9.0.0-next-9.11
+
+## 9.0.0-next-9.10
+
+## 9.0.0-next-9.9
+
+## 9.0.0-next-9.8
+
+## 9.0.0-next-9.7
+
+## 9.0.0-next-9.6
+
+### Patch Changes
+
+- 1905990: chore(middleware): move ui-options to external script
+
+## 9.0.0-next-9.5
+
+### Minor Changes
+
+- a9d7b4a: feat: add @verdaccio/plugin-verifier tool package
+
+  - feat(plugin-verifier): new package to verify that a Verdaccio plugin can be loaded, instantiated, and passes sanity checks — uses `asyncLoadPlugin` from `@verdaccio/loaders` (the same loader Verdaccio runs at startup)
+  - feat(plugin-verifier): CLI built with clipanion (`verdaccio-plugin-verifier <plugin> --category <category>`)
+  - feat(plugin-verifier): programmatic API for use in plugin test suites
+  - feat(plugin-verifier): step-by-step diagnostics on failure (resolve, export, instantiate, sanity-check) with actionable error messages
+  - feat(core): add shared sanity check functions (`authSanityCheck`, `storageSanityCheck`, `middlewareSanityCheck`, `filterSanityCheck`) to `pluginUtils` in `@verdaccio/core`
+  - feat(loaders): add ESM plugin support — `tryLoadAsync` falls back from `require()` to dynamic `import()` when loading ESM plugins
+  - refactor(auth,store,server): replace inline sanity check callbacks with shared functions from `@verdaccio/core`
+  - fix(core): replace removed `pseudoRandomBytes` with `randomBytes` for Node.js 24 compatibility
+  - fix(core): fix `process-warning` ESM interop — use default import instead of named imports for CJS compatibility
+
+### Patch Changes
+
+- 8f9bcc8: fix: links to doc
+- 1d5462f: chore: finish update vitest to 4.1.0
+
+## 9.0.0-next-9.4
+
+### Major Changes
+
+- 52a6520: Replace Babel and esbuild build pipeline with Vite 8 across all packages. All packages now output dual ESM (.mjs) and CJS (.js) formats with TypeScript declarations generated via vite-plugin-dts. Includes shared build config at vite.lib.config.mjs, proper exports field in all package.json files, and fixes for type-only re-exports required by Rollup's stricter module analysis.
+
+## 9.0.0-next-9.3
+
+## 9.0.0-next-9.2
+
+## 9.0.0-next-9.1
+
+### Major Changes
+
+- dd9bad3: feat: upgrade to express v5
+
+## 9.0.0-next-9.0
+
+### Major Changes
+
+- 7f80af5: chore: bump package
+
+## 8.0.0-next-8.31
+
+## 8.0.0-next-8.30
+
+## 8.0.0-next-8.29
+
+### Patch Changes
+
+- 4edcae8: chore: replacing require('package.json')
+- 184632c: chore: fix links to docs
+
+## 8.0.0-next-8.28
+
+## 8.0.0-next-8.27
+
+## 8.0.0-next-8.26
+
+## 8.0.0-next-8.25
+
+## 8.0.0-next-8.24
+
+## 8.0.0-next-8.23
+
+## 8.0.0-next-8.22
+
+### Patch Changes
+
+- 67e667b: chore: replace conditional require(fs/promises) pattern
+- 60ef8ff: fix(storage): check_owners with anonymous access
+
+## 8.0.0-next-8.21
+
+### Patch Changes
+
+- f8a321f: fix: restore minimatch major version
+
+## 8.0.0-next-8.20
+
+### Minor Changes
+
+- 6a4d6dd: feat: getListenAddress getConfigParsed methods
+
+## 8.0.0-next-8.19
+
+### Patch Changes
+
+- 9350431: chore(deps): clean up core modules
+
+## 8.0.0-next-8.18
+
+## 8.0.0-next-8.17
+
+### Patch Changes
+
+- 96d2f0f: fix(core): remove `lodash` from a dependency
+
+## 8.0.0-next-8.16
+
+### Patch Changes
+
+- 9509b63: chore(core): http status codes
+- 626ae6a: feat: web v1 login backend (experimental)
+- acb8a99: chore(core): move more utils to core
+- b19ddca: fix(config): server settings
+
+## 8.0.0-next-8.15
+
+## 8.0.0-next-8.14
+
+### Patch Changes
+
+- b9fea38: chore: cleanup utils
+
+## 8.0.0-next-8.13
+
+### Patch Changes
+
+- 2eb8cc2: fix: handling for uplink timeouts
+- e4a1539: chore: package.json maintenance
+- 0607e80: chore: update readme badges and license files
+
+## 8.0.0-next-8.12
+
+### Patch Changes
+
+- 95ac124: chore: add package parameter to storage plugin interface
+
+## 8.0.0-next-8.11
+
+## 8.0.0-next-8.10
+
+## 8.0.0-next-8.9
+
+## 8.0.0-next-8.8
+
+## 8.0.0-next-8.7
+
+### Patch Changes
+
+- 589ea7f: chore: move tarball utils to core
+
+## 8.0.0-next-8.6
+
+## 8.0.0-next-8.5
+
+### Patch Changes
+
+- 64a7fc0: chore(core): typing, naming, and docs of parameters
+- 5cbee6f: fix: unpublish a package on storage package
+- a049bba: chore(tests): temp folder naming
+
+## 8.0.0-next-8.4
+
+### Patch Changes
+
+- 48aa89f: chore: request header constants
+- 58e0d95: fix(middleware): error 404 when getting scoped tarballs
+
+## 8.0.0-next-8.3
+
+## 8.0.0-next-8.2
+
+### Minor Changes
+
+- 6a8154c: feat: update logger pino to latest
+
+## 8.0.0-next-8.1
+
+## 8.0.0-next-8.0
+
+### Major Changes
+
+- chore: move v7 next to v8 next
+
+## 7.0.0
+
+### Major Changes
+
+- 47f61c6: feat!: bump to v7
+- e7ebccb: update major dependencies, remove old nodejs support
+
+### Minor Changes
+
+- daceb6d: restore legacy support
+- f047cc8: refactor: auth with legacy sign support
+- bd8703e: feat: add migrateToSecureLegacySignature and remove enhancedLegacySignature property
+
+### Patch Changes
+
+- 6e764e3: feat: add support for npm owner
+- 7c9f3cf: chore: improve startup logging
+
+## 7.0.0-next-8.21
+
+### Patch Changes
+
+- 7c9f3cf: chore: improve startup logging
+
+## 7.0.0-next-7.20
+
+## 7.0.0-next-7.19
+
+## 7.0.0-next-7.18
+
+## 7.0.0-next-7.17
+
+### Patch Changes
+
+- 6e764e3: feat: add support for npm owner
+
+## 7.0.0-next-7.16
+
+## 7.0.0-next-7.15
+
+### Minor Changes
+
+- bd8703e: feat: add migrateToSecureLegacySignature and remove enhancedLegacySignature property
+
+## 7.0.0-next-7.14
+
+## 7.0.0-next-7.13
+
+## 7.0.0-next-7.12
+
+## 7.0.0-next-7.11
+
+## 7.0.0-next-7.10
+
+## 7.0.0-next-7.9
+
+## 7.0.0-next-7.8
+
+## 7.0.0-next-7.7
+
+## 7.0.0-next.6
+
+## 7.0.0-next.5
+
+### Minor Changes
+
+- f047cc8: refactor: auth with legacy sign support
+
+## 7.0.0-next.4
+
+## 7.0.0-next.3
+
+### Major Changes
+
+- e7ebccb61: update major dependencies, remove old nodejs support
+
+### Minor Changes
+
+- daceb6d87: restore legacy support
+
+## 7.0.0-next.2
+
+## 7.0.0-next.1
+
+## 7.0.0-next.0
+
+### Major Changes
+
+- feat!: bump to v7
+
+## 6.0.0
+
+### Major Changes
+
+- 292c0a37f: feat!: replace deprecated request dependency by got
+
+  This is a big refactoring of the core, fetching dependencies, improve code, more tests and better stability. This is essential for the next release, will take some time but would allow modularize more the core.
+
+  ## Notes
+
+  - Remove deprecated `request` by other `got`, retry improved, custom Agent ( got does not include it built-in)
+  - Remove `async` dependency from storage (used by core) it was linked with proxy somehow safe to remove now
+  - Refactor with promises instead callback wherever is possible
+  - ~Document the API~
+  - Improve testing, integration tests
+  - Bugfix
+  - Clean up old validations
+  - Improve performance
+
+  ## 💥 Breaking changes
+
+  - Plugin API methods were callbacks based are returning promises, this will break current storage plugins, check documentation for upgrade.
+  - Write Tarball, Read Tarball methods parameters change, a new set of options like `AbortController` signals are being provided to the `addAbortSignal` can be internally used with Streams when a request is aborted. eg: `addAbortSignal(signal, fs.createReadStream(pathName));`
+  - `@verdaccio/streams` stream abort support is legacy is being deprecated removed
+  - Remove AWS and Google Cloud packages for future refactoring [#2574](https://github.com/verdaccio/verdaccio/pull/2574).
+
+- a3a209b5e: feat: migrate to pino.js 8
+- 459b6fa72: refactor: search v1 endpoint and local-database
+
+  - refactor search `api v1` endpoint, improve performance
+  - remove usage of `async` dependency https://github.com/verdaccio/verdaccio/issues/1225
+  - refactor method storage class
+  - create new module `core` to reduce the ammount of modules with utilities
+  - use `undici` instead `node-fetch`
+  - use `fastify` instead `express` for functional test
+
+  ### Breaking changes
+
+  - plugin storage API changes
+  - remove old search endpoint (return 404)
+  - filter local private packages at plugin level
+
+  The storage api changes for methods `get`, `add`, `remove` as promise base. The `search` methods also changes and recieves a `query` object that contains all query params from the client.
+
+  ```ts
+  export interface IPluginStorage<T> extends IPlugin {
+    add(name: string): Promise<void>;
+    remove(name: string): Promise<void>;
+    get(): Promise<any>;
+    init(): Promise<void>;
+    getSecret(): Promise<string>;
+    setSecret(secret: string): Promise<any>;
+    getPackageStorage(packageInfo: string): IPackageStorage;
+    search(query: searchUtils.SearchQuery): Promise<searchUtils.SearchItem[]>;
+    saveToken(token: Token): Promise<any>;
+    deleteToken(user: string, tokenKey: string): Promise<any>;
+    readTokens(filter: TokenFilter): Promise<Token[]>;
+  }
+  ```
+
+- 794af76c5: Remove Node 12 support
+
+  - We need move to the new `undici` and does not support Node.js 12
+
+- 82cb0f2bf: feat!: config.logs throw an error, logging config not longer accept array or logs property
+
+  ### 💥 Breaking change
+
+  This is valid
+
+  ```yaml
+  log: { type: stdout, format: pretty, level: http }
+  ```
+
+  This is invalid
+
+  ```yaml
+  logs: { type: stdout, format: pretty, level: http }
+  ```
+
+  or
+
+  ```yaml
+  logs:
+    - [{ type: stdout, format: pretty, level: http }]
+  ```
+
+### Minor Changes
+
+- 974cd8c19: fix: startup messages improved and logs support on types
+- ef88da3b4: feat: improve support for fs promises older nodejs
+- 24b9be020: refactor: improve docker image build with strict dependencies and prod build
+- 00d1d2a17: chore: env variable for launch fastify
+
+  - Update fastify to major release `v4.3.0`
+  - Update CLI launcher
+
+  via CLI
+
+  ```
+  VERDACCIO_SERVER=fastify verdaccio
+  ```
+
+  with docker
+
+  ```
+  docker run -it --rm --name verdaccio \
+    -e "VERDACCIO_SERVER=8080" -p 8080:8080 \
+    -e "VERDACCIO_SERVER=fastify" \
+    verdaccio/verdaccio
+  ```
+
+- 154b2ecd3: refactor: remove @verdaccio/commons-api in favor @verdaccio/core and remove duplications
+- 16e38df8a: feat: trustProxy property
+- dc571aabd: feat: add forceEnhancedLegacySignature
+- 6c1eb021b: feat: use warning codes for deprecation warnings
+- 62c24b632: feat: add passwordValidationRegex property
+- 5167bb528: feat: ui search support for remote, local and private packages
+
+  The command `npm search` search globally and return all matches, with this improvement the user interface
+  is powered with the same capabilities.
+
+  The UI also tag where is the origin the package with a tag, also provide the latest version and description of the package.
+
+- c9d1af0e5: feat: async bcrypt hash
+- 4b29d715b: chore: move improvements from v5 to v6
+
+  Migrate improvements form v5 to v6:
+
+  - https://github.com/verdaccio/verdaccio/pull/3158
+  - https://github.com/verdaccio/verdaccio/pull/3151
+  - https://github.com/verdaccio/verdaccio/pull/2271
+  - https://github.com/verdaccio/verdaccio/pull/2787
+  - https://github.com/verdaccio/verdaccio/pull/2791
+  - https://github.com/verdaccio/verdaccio/pull/2205
+
+### Patch Changes
+
+- 43f32687c: fix: abbreviated headers handle quality values
+- 351aeeaa8: fix(deps): @verdaccio/utils should be a prod dep of local-storage
+- 9718e0330: fix: build targets for 5x modules
+- a1da11308: fix: minor typo on warning message
+- 378e907d5: fix(core): fix `isObject` function.`isObject(true)` should return false.
+- f859d2b1a: fix: official package "-" cannot be synced
+- 0a6412ca9: refactor: got instead undici
+- b849128de: fix: handle upload scoped tarball
+
+## 6.0.0-6-next.76
+
+## 6.0.0-6-next.75
+
+### Patch Changes
+
+- 0a6412ca9: refactor: got instead undici
+
+## 6.0.0-6-next.74
+
+## 6.0.0-6-next.73
+
+### Patch Changes
+
+- f859d2b1a: fix: official package "-" cannot be synced
+
+## 6.0.0-6-next.72
+
+## 6.0.0-6-next.71
+
+## 6.0.0-6-next.70
+
+## 6.0.0-6-next.69
+
+### Minor Changes
+
+- c9d1af0e: feat: async bcrypt hash
+
+## 6.0.0-6-next.68
+
+## 6.0.0-6-next.67
+
+### Minor Changes
+
+- 16e38df8: feat: trustProxy property
+
+## 6.0.0-6-next.66
+
+## 6.0.0-6-next.65
+
+### Patch Changes
+
+- a1da1130: fix: minor typo on warning message
+
+## 6.0.0-6-next.64
+
+### Minor Changes
+
+- 974cd8c1: fix: startup messages improved and logs support on types
+
+## 6.0.0-6-next.63
+
+### Minor Changes
+
+- dc571aab: feat: add forceEnhancedLegacySignature
+
+## 6.0.0-6-next.62
+
+### Patch Changes
+
+- 378e907d: fix(core): fix `isObject` function.`isObject(true)` should return false.
+
+## 6.0.0-6-next.61
+
+## 6.0.0-6-next.60
+
+## 6.0.0-6-next.59
+
+## 6.0.0-6-next.58
+
+## 6.0.0-6-next.57
+
+## 6.0.0-6-next.56
+
+## 6.0.0-6-next.55
+
+### Patch Changes
+
+- 9718e033: fix: build targets for 5x modules
+
+## 6.0.0-6-next.54
+
+### Minor Changes
+
+- ef88da3b: feat: improve support for fs promises older nodejs
+
+## 6.0.0-6-next.53
+
+## 6.0.0-6-next.52
+
+## 6.0.0-6-next.51
+
+### Minor Changes
+
+- 4b29d715: chore: move improvements from v5 to v6
+
+  Migrate improvements form v5 to v6:
+
+  - https://github.com/verdaccio/verdaccio/pull/3158
+  - https://github.com/verdaccio/verdaccio/pull/3151
+  - https://github.com/verdaccio/verdaccio/pull/2271
+  - https://github.com/verdaccio/verdaccio/pull/2787
+  - https://github.com/verdaccio/verdaccio/pull/2791
+  - https://github.com/verdaccio/verdaccio/pull/2205
+
+## 6.0.0-6-next.50
+
+## 6.0.0-6-next.49
+
+## 6.0.0-6-next.48
+
+### Minor Changes
+
+- 62c24b63: feat: add passwordValidationRegex property
+
+### Patch Changes
+
+- 43f32687: fix: abbreviated headers handle quality values
+
+## 6.0.0-6-next.47
+
+## 6.0.0-6-next.8
+
+### Patch Changes
+
+- b849128d: fix: handle upload scoped tarball
+
+## 6.0.0-6-next.7
+
+### Patch Changes
+
+- 351aeeaa: fix(deps): @verdaccio/utils should be a prod dep of local-storage
+
+## 6.0.0-6-next.6
+
+### Major Changes
+
+- 292c0a37: feat!: replace deprecated request dependency by got
+
+  This is a big refactoring of the core, fetching dependencies, improve code, more tests and better stability. This is essential for the next release, will take some time but would allow modularize more the core.
+
+  ## Notes
+
+  - Remove deprecated `request` by other `got`, retry improved, custom Agent ( got does not include it built-in)
+  - Remove `async` dependency from storage (used by core) it was linked with proxy somehow safe to remove now
+  - Refactor with promises instead callback wherever is possible
+  - ~Document the API~
+  - Improve testing, integration tests
+  - Bugfix
+  - Clean up old validations
+  - Improve performance
+
+  ## 💥 Breaking changes
+
+  - Plugin API methods were callbacks based are returning promises, this will break current storage plugins, check documentation for upgrade.
+  - Write Tarball, Read Tarball methods parameters change, a new set of options like `AbortController` signals are being provided to the `addAbortSignal` can be internally used with Streams when a request is aborted. eg: `addAbortSignal(signal, fs.createReadStream(pathName));`
+  - `@verdaccio/streams` stream abort support is legacy is being deprecated removed
+  - Remove AWS and Google Cloud packages for future refactoring [#2574](https://github.com/verdaccio/verdaccio/pull/2574).
+
+- a3a209b5: feat: migrate to pino.js 8
+
+### Minor Changes
+
+- 00d1d2a1: chore: env variable for launch fastify
+
+  - Update fastify to major release `v4.3.0`
+  - Update CLI launcher
+
+  via CLI
+
+  ```
+  VERDACCIO_SERVER=fastify verdaccio
+  ```
+
+  with docker
+
+  ```
+  docker run -it --rm --name verdaccio \
+    -e "VERDACCIO_SERVER=8080" -p 8080:8080 \
+    -e "VERDACCIO_SERVER=fastify" \
+    verdaccio/verdaccio
+  ```
+
+## 6.0.0-6-next.5
+
+### Major Changes
+
+- 82cb0f2b: feat!: config.logs throw an error, logging config not longer accept array or logs property
+
+  ### 💥 Breaking change
+
+  This is valid
+
+  ```yaml
+  log: { type: stdout, format: pretty, level: http }
+  ```
+
+  This is invalid
+
+  ```yaml
+  logs: { type: stdout, format: pretty, level: http }
+  ```
+
+  or
+
+  ```yaml
+  logs:
+    - [{ type: stdout, format: pretty, level: http }]
+  ```
+
+### Minor Changes
+
+- 5167bb52: feat: ui search support for remote, local and private packages
+
+  The command `npm search` search globally and return all matches, with this improvement the user interface
+  is powered with the same capabilities.
+
+  The UI also tag where is the origin the package with a tag, also provide the latest version and description of the package.
+
+## 6.0.0-6-next.4
+
+### Minor Changes
+
+- 24b9be02: refactor: improve docker image build with strict dependencies and prod build
+
+## 6.0.0-6-next.3
+
+### Minor Changes
+
+- 6c1eb021: feat: use warning codes for deprecation warnings
+
+## 6.0.0-6-next.2
+
+### Major Changes
+
+- 794af76c: Remove Node 12 support
+
+  - We need move to the new `undici` and does not support Node.js 12
+
+### Minor Changes
+
+- 154b2ecd: refactor: remove @verdaccio/commons-api in favor @verdaccio/core and remove duplications
+
+## 6.0.0-6-next.1
+
+### Major Changes
+
+- 459b6fa7: refactor: search v1 endpoint and local-database
+
+  - refactor search `api v1` endpoint, improve performance
+  - remove usage of `async` dependency https://github.com/verdaccio/verdaccio/issues/1225
+  - refactor method storage class
+  - create new module `core` to reduce the ammount of modules with utilities
+  - use `undici` instead `node-fetch`
+  - use `fastify` instead `express` for functional test
+
+  ### Breaking changes
+
+  - plugin storage API changes
+  - remove old search endpoint (return 404)
+  - filter local private packages at plugin level
+
+  The storage api changes for methods `get`, `add`, `remove` as promise base. The `search` methods also changes and recieves a `query` object that contains all query params from the client.
+
+  ```ts
+  export interface IPluginStorage<T> extends IPlugin {
+    add(name: string): Promise<void>;
+    remove(name: string): Promise<void>;
+    get(): Promise<any>;
+    init(): Promise<void>;
+    getSecret(): Promise<string>;
+    setSecret(secret: string): Promise<any>;
+    getPackageStorage(packageInfo: string): IPackageStorage;
+    search(query: searchUtils.SearchQuery): Promise<searchUtils.SearchItem[]>;
+    saveToken(token: Token): Promise<any>;
+    deleteToken(user: string, tokenKey: string): Promise<any>;
+    readTokens(filter: TokenFilter): Promise<Token[]>;
+  }
+  ```

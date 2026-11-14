@@ -1,0 +1,878 @@
+import buildDebug from 'debug';
+import { filter, isEmpty, isNil, isUndefined } from 'lodash-es';
+import { createHash } from 'node:crypto';
+import { HTPasswd } from 'verdaccio-htpasswd';
+
+import { createAnonymousRemoteUser, createRemoteUser } from '@verdaccio/config';
+import type { VerdaccioError, pluginUtils } from '@verdaccio/core';
+import {
+  API_ERROR,
+  HTTP_STATUS,
+  PLUGIN_CATEGORY,
+  PLUGIN_PREFIX,
+  SUPPORT_ERRORS,
+  TOKEN_BEARER,
+  authUtils,
+  errorUtils,
+  pluginUtils as pluginSanity,
+  warningUtils,
+} from '@verdaccio/core';
+import { asyncLoadPlugin } from '@verdaccio/loaders';
+import { aesEncrypt, signPayload } from '@verdaccio/signature';
+import type {
+  AllowAccess,
+  Callback,
+  Config,
+  JWTSignOptions,
+  Logger,
+  PackageAccess,
+  RemoteUser,
+  Security,
+} from '@verdaccio/types';
+
+import type {
+  $RequestExtend,
+  $ResponseExtend,
+  IAuthMiddleware,
+  NextFunction,
+  TokenEncryption,
+} from './types';
+import {
+  SHA256_ALGORITHM,
+  getDefaultPluginMethods,
+  getMiddlewareCredentials,
+  isAESLegacy,
+  isAuthHeaderValid,
+  isBasicLoginRequest,
+  parseAuthTokenHeader,
+  verifyJWTPayload,
+} from './utils';
+
+const debug = buildDebug('verdaccio:auth');
+type LegacyAuthCacheEntry = {
+  expiresAt: number;
+  user: RemoteUser;
+};
+
+type LegacyAuthCacheWaiter = (err: VerdaccioError | null, user?: RemoteUser) => void;
+
+function cloneRemoteUser(user: RemoteUser): RemoteUser {
+  return {
+    ...user,
+    groups: user.groups ? [...user.groups] : user.groups,
+    real_groups: user.real_groups ? [...user.real_groups] : user.real_groups,
+    token: user.token ? { ...user.token } : user.token,
+  };
+}
+
+class Auth implements IAuthMiddleware, TokenEncryption, pluginUtils.IBasicAuth {
+  public config: Config;
+  public secret: string;
+  public logger: Logger;
+  public plugins: pluginUtils.Auth<Config>[];
+  public options: { legacyMergeConfigs: boolean };
+  private legacyAuthCache: Map<string, LegacyAuthCacheEntry>;
+  private legacyAuthCacheWaiters: Map<string, LegacyAuthCacheWaiter[]>;
+
+  public constructor(config: Config, logger: Logger, options = { legacyMergeConfigs: false }) {
+    this.config = config;
+    this.secret = config.secret;
+    this.logger = logger;
+    this.plugins = [];
+    this.options = options;
+    this.legacyAuthCache = new Map();
+    this.legacyAuthCacheWaiters = new Map();
+    if (!this.secret) {
+      throw new TypeError('secret it is required value on initialize the auth class');
+    }
+  }
+
+  public async init() {
+    let plugins = await this.loadPlugin();
+
+    debug('auth plugins found %s', plugins.length);
+    // Missing auth config or no loaded plugins -> load default htpasswd plugin
+    // Empty auth config (null) -> just use fallback methods
+    if (this.config.auth !== null && (!plugins || plugins.length === 0)) {
+      plugins = this.loadDefaultPlugin();
+    }
+    this.plugins = plugins;
+
+    this.applyFallbackPluginMethods();
+  }
+
+  private loadDefaultPlugin() {
+    debug('load default auth plugin');
+    let authPlugin;
+    try {
+      authPlugin = new HTPasswd(
+        { file: './htpasswd' },
+        {
+          config: this.config,
+          logger: this.logger,
+        }
+      );
+      this.logger.info(
+        { name: 'verdaccio-htpasswd', pluginCategory: PLUGIN_CATEGORY.AUTHENTICATION },
+        'plugin @{name} successfully loaded (@{pluginCategory})'
+      );
+    } catch (error: any) {
+      debug('error on loading auth htpasswd plugin stack: %o', error);
+      this.logger.info({}, 'no auth plugin has been found');
+      return [];
+    }
+
+    return [authPlugin];
+  }
+
+  private async loadPlugin() {
+    return asyncLoadPlugin<pluginUtils.Auth<Config>>(
+      this.config.auth,
+      {
+        config: this.config,
+        logger: this.logger,
+      },
+      pluginSanity.authSanityCheck,
+      this.options.legacyMergeConfigs,
+      this.config?.server?.pluginPrefix ?? PLUGIN_PREFIX,
+      PLUGIN_CATEGORY.AUTHENTICATION
+    );
+  }
+
+  private applyFallbackPluginMethods(): void {
+    this.plugins.push(getDefaultPluginMethods(this.logger));
+  }
+
+  public changePassword(
+    username: string,
+    password: string,
+    newPassword: string,
+    cb: Callback
+  ): void {
+    const validPlugins = filter(
+      this.plugins,
+      (plugin) => typeof plugin.changePassword === 'function'
+    );
+
+    if (isEmpty(validPlugins)) {
+      return cb(errorUtils.getInternalError(SUPPORT_ERRORS.PLUGIN_MISSING_INTERFACE));
+    }
+
+    for (const plugin of validPlugins) {
+      if (isNil(plugin) || typeof plugin.changePassword !== 'function') {
+        debug('auth plugin does not implement changePassword, trying next one');
+        continue;
+      } else {
+        debug('updating password for %o', username);
+        plugin.changePassword!(username, password, newPassword, (err, profile): void => {
+          if (err) {
+            if (
+              err.status === HTTP_STATUS.BAD_REQUEST &&
+              err.message === API_ERROR.INVALID_OLD_PASSWORD
+            ) {
+              this.logger.warn(
+                { username },
+                'Password change rejected for @{username}: invalid old password'
+              );
+              return cb(err);
+            }
+            this.logger.error(
+              { username, err },
+              `An error has been produced
+            updating the password for @{username}. Error: @{err.message}`
+            );
+            return cb(err);
+          }
+
+          debug('updated password for %o was successful', username);
+          return cb(null, profile);
+        });
+      }
+    }
+  }
+
+  public async invalidateToken(token: string) {
+    // eslint-disable-next-line no-console
+    console.log('invalidate token pending to implement', token);
+    return Promise.resolve();
+  }
+
+  public authenticate(
+    username: string,
+    password: string,
+    cb: (error: VerdaccioError | null, user?: RemoteUser) => void
+  ): void {
+    const plugins = this.plugins.slice(0);
+    (function next(): void {
+      const plugin = plugins.shift();
+
+      if (typeof plugin?.authenticate !== 'function') {
+        return next();
+      }
+
+      debug('authenticating %o', username);
+      plugin.authenticate(username, password, function (err: VerdaccioError | null, groups): void {
+        if (err) {
+          debug('authenticating for user %o failed. Error: %o', username, err?.message);
+          return cb(err);
+        }
+
+        if (groups && !Array.isArray(groups)) {
+          return cb(errorUtils.getInternalError(API_ERROR.BAD_FORMAT_USER_GROUP));
+        }
+
+        if (groups && groups.length !== 0) {
+          debug('authentication for user %o was successfully. Groups: %o', username, groups);
+          return cb(err, createRemoteUser(username, groups));
+        }
+        next();
+      });
+    })();
+  }
+
+  public add_user(
+    user: string,
+    password: string,
+    cb: (error: VerdaccioError | null, user?: RemoteUser) => void
+  ): void {
+    const self = this;
+    const plugins = this.plugins.slice(0);
+    debug('add user %o', user);
+
+    (function next(): void {
+      let method = 'adduser';
+      const plugin = plugins.shift();
+      // @ts-expect-error future major (7.x) should remove this section
+      if (typeof plugin.adduser === 'undefined' && typeof plugin.add_user === 'function') {
+        method = 'add_user';
+        warningUtils.emit(warningUtils.Codes.VERWAR006);
+      }
+      // @ts-ignore
+      if (typeof plugin[method] !== 'function') {
+        next();
+      } else {
+        // TODO: replace by adduser whenever add_user deprecation method has been removed
+        // @ts-ignore
+        plugin[method](
+          user,
+          password,
+          function (err: VerdaccioError | null, ok?: boolean | string): void {
+            if (err) {
+              debug('the user %o could not be added. Error: %o', user, err?.message);
+              return cb(err);
+            }
+            if (ok) {
+              debug('the user %o has been added', user);
+              return self.authenticate(user, password, cb);
+            }
+            debug('user could not be added, skip to next auth plugin');
+            next();
+          }
+        );
+      }
+    })();
+  }
+
+  /**
+   * Allow user to access a package.
+   */
+  public allow_access(
+    { packageName, packageVersion }: pluginUtils.AuthPluginPackage,
+    user: RemoteUser,
+    callback: pluginUtils.AccessCallback
+  ): void {
+    const plugins = this.plugins.slice(0);
+    const pkg = Object.assign(
+      { name: packageName, version: packageVersion },
+      authUtils.getMatchedPackagesSpec(packageName, this.config.packages)
+    ) as AllowAccess & PackageAccess;
+
+    debug('check access permissions for user %o to package %o', user.name, packageName);
+
+    // Use const instead of function declaration so we can use this.logger
+    const next = (): void => {
+      const plugin = plugins.shift();
+
+      if (typeof plugin?.allow_access !== 'function') {
+        debug('plugin does not implement allow_access');
+        return next();
+      }
+
+      plugin.allow_access(user, pkg, (err: VerdaccioError | null, ok?: boolean): void => {
+        if (err) {
+          debug('forbidden access. Error: %o', err);
+          return callback(err);
+        }
+
+        if (ok) {
+          debug('access was granted');
+          this.logger.trace(
+            { user: user.name, name: pkg.name },
+            `access was granted for @{name} by @{user}`
+          );
+          return callback(null, ok);
+        }
+
+        // cb(null, false) causes next plugin to roll
+        debug('access was denied. Rolling to next plugin');
+        this.logger.trace(
+          { user: user.name, name: pkg.name },
+          `intermediate access denial for @{name} by @{user}, rolling to next plugin`
+        );
+        return next();
+      });
+    };
+
+    return next();
+  }
+
+  public allow_unpublish(
+    { packageName, packageVersion }: pluginUtils.AuthPluginPackage,
+    user: RemoteUser,
+    callback: Callback
+  ): void {
+    const plugins = this.plugins.slice(0);
+    const pkg = Object.assign(
+      { name: packageName, version: packageVersion },
+      authUtils.getMatchedPackagesSpec(packageName, this.config.packages)
+    );
+
+    debug('check unpublish permissions for user %o to package %o', user.name, packageName);
+
+    // Use const instead of function declaration so we can use this.logger
+    const next = (): void => {
+      const plugin = plugins.shift();
+
+      if (typeof plugin?.allow_unpublish !== 'function') {
+        debug('plugin does not implement allow_unpublish');
+        return next();
+      }
+
+      plugin.allow_unpublish(user, pkg, (err: VerdaccioError | null, ok?: boolean): void => {
+        if (err) {
+          debug('forbidden unpublish. Error: %o', err);
+          return callback(err);
+        }
+
+        // The following is different from the allow_access and allow_publish implementations:
+        // If the packages config is missing an entry for "unpublish", the built-in default method
+        // (or a plugin) will return undefined, which will trigger the allow_publish fallback.
+        // (see utils.ts, handleSpecialUnpublish, callback(null, undefined))
+        if (isNil(ok) === true) {
+          debug('bypass unpublish for %o, publish will handle the access', packageName);
+          this.logger.trace(
+            { user: user.name, name: pkg.name },
+            `bypass unpublish for @{name} by @{user}, publish will handle the access`
+          );
+          return this.allow_publish({ packageName, packageVersion }, user, callback);
+        }
+
+        if (ok) {
+          debug('unpublish was granted');
+          this.logger.trace(
+            { user: user.name, name: pkg.name },
+            `unpublish was granted for @{name} by @{user}`
+          );
+          return callback(null, ok);
+        }
+
+        // cb(null, false) causes next plugin to roll
+        debug('unpublish was denied. Rolling to next plugin');
+        this.logger.trace(
+          { user: user.name, name: pkg.name },
+          `intermediate unpublish denial for @{name} by @{user}, rolling to next plugin`
+        );
+        return next();
+      });
+    };
+
+    return next();
+  }
+
+  /**
+   * Allow a user to submit a package version for review (`npm stage publish`).
+   *
+   * Deliberately a weaker capability than publishing: granting `stage` to a
+   * group that lacks `publish` is what turns staging into a real review gate,
+   * because those users can propose a release but not make one.
+   *
+   * When the packages configuration says nothing about `stage`, the built-in
+   * plugin answers `undefined` and this falls back to `allow_publish`, so
+   * existing configurations behave exactly as before.
+   */
+  public allow_stage(
+    { packageName, packageVersion }: pluginUtils.AuthPluginPackage,
+    user: RemoteUser,
+    callback: Callback
+  ): void {
+    const plugins = this.plugins.slice(0);
+    const pkg = Object.assign(
+      { name: packageName, version: packageVersion },
+      authUtils.getMatchedPackagesSpec(packageName, this.config.packages)
+    );
+
+    debug('check stage permissions for user %o to package %o', user.name, packageName);
+
+    const next = (): void => {
+      const plugin = plugins.shift();
+
+      if (typeof plugin?.allow_stage !== 'function') {
+        debug('plugin does not implement allow_stage');
+        return next();
+      }
+
+      plugin.allow_stage(user, pkg, (err: VerdaccioError | null, ok?: boolean): void => {
+        if (err) {
+          debug('forbidden stage. Error: %o', err);
+          return callback(err);
+        }
+
+        // undefined means the packages config has no "stage" entry, so publish
+        // decides (see utils.ts, handleActionWithPublishFallback)
+        if (isNil(ok) === true) {
+          debug('bypass stage for %o, publish will handle the access', packageName);
+          this.logger.trace(
+            { user: user.name, name: pkg.name },
+            `bypass stage for @{name} by @{user}, publish will handle the access`
+          );
+          return this.allow_publish({ packageName, packageVersion }, user, callback);
+        }
+
+        if (ok) {
+          debug('stage was granted');
+          this.logger.trace(
+            { user: user.name, name: pkg.name },
+            `stage was granted for @{name} by @{user}`
+          );
+          return callback(null, ok);
+        }
+
+        // cb(null, false) causes next plugin to roll
+        debug('stage was denied. Rolling to next plugin');
+        return next();
+      });
+    };
+
+    return next();
+  }
+
+  /**
+   * Allow user to publish a package.
+   */
+  public allow_publish(
+    { packageName, packageVersion }: pluginUtils.AuthPluginPackage,
+    user: RemoteUser,
+    callback: Callback
+  ): void {
+    const plugins = this.plugins.slice(0);
+    const pkg = Object.assign(
+      { name: packageName, version: packageVersion },
+      authUtils.getMatchedPackagesSpec(packageName, this.config.packages)
+    );
+
+    debug('check publish permissions for user %o to package %o', user.name, packageName);
+
+    // Use const instead of function declaration so we can use this.logger
+    const next = (): void => {
+      const plugin = plugins.shift();
+
+      if (typeof plugin?.allow_publish !== 'function') {
+        debug('plugin does not implement allow_publish');
+        return next();
+      }
+
+      plugin.allow_publish(user, pkg, (err: VerdaccioError | null, ok?: boolean): void => {
+        if (err) {
+          debug('forbidden publish. Error: %o', err);
+          return callback(err);
+        }
+
+        if (ok) {
+          debug('publish was granted');
+          this.logger.trace(
+            { user: user.name, name: pkg.name },
+            `publish was granted for @{name} by @{user}`
+          );
+          return callback(null, ok);
+        }
+
+        // cb(null, false) causes next plugin to roll
+        debug('publish was denied. Rolling to next plugin');
+        this.logger.trace(
+          { user: user.name, name: pkg.name },
+          `intermediate publish denial for @{name} by @{user}, rolling to next plugin`
+        );
+        return next();
+      });
+    };
+
+    return next();
+  }
+
+  public apiJWTmiddleware(): any {
+    debug('jwt middleware');
+    const plugins = this.plugins.slice(0);
+    const helpers = { createAnonymousRemoteUser, createRemoteUser };
+    for (const plugin of plugins) {
+      if (plugin.apiJWTmiddleware) {
+        return plugin.apiJWTmiddleware(helpers);
+      }
+    }
+
+    return (req: $RequestExtend, res: $ResponseExtend, _next: NextFunction) => {
+      req.pause();
+      const next = function (err?: VerdaccioError): NextFunction {
+        req.resume();
+        if (err) {
+          return _next(err) as unknown as NextFunction;
+        }
+
+        return _next() as unknown as NextFunction;
+      };
+
+      // FUTURE: disabled, not removed yet but seems unreacable code
+      // if (this._isRemoteUserValid(req.remote_user)) {
+      //   debug('jwt has a valid authentication header');
+      //   return next();
+      // }
+
+      // in case auth header does not exist we return anonymous function
+      const remoteUser = createAnonymousRemoteUser();
+      req.remote_user = remoteUser;
+      res.locals.remote_user = remoteUser;
+
+      const { authorization } = req.headers;
+      if (isNil(authorization)) {
+        debug('jwt, authentication header is missing');
+        return next();
+      }
+
+      if (isBasicLoginRequest(req, this.config.security)) {
+        debug('basic login request, credentials are checked by the login route');
+        return next();
+      }
+
+      if (!isAuthHeaderValid(authorization)) {
+        debug('api middleware authentication heather is invalid');
+        return next(errorUtils.getBadRequest(API_ERROR.BAD_AUTH_HEADER));
+      }
+      const { secret, security } = this.config;
+
+      if (isAESLegacy(security)) {
+        debug('api middleware using legacy auth token');
+        this.handleAESMiddleware(req, security, secret, authorization, next);
+      } else {
+        debug('api middleware using JWT auth token');
+        this.handleJWTAPIMiddleware(req, security, secret, authorization, next);
+      }
+    };
+  }
+
+  private handleJWTAPIMiddleware(
+    req: $RequestExtend,
+    security: Security,
+    secret: string,
+    authorization: string,
+    next: any
+  ): void {
+    debug('handle JWT api middleware');
+    const credentials: any = getMiddlewareCredentials(security, secret, authorization);
+    if (credentials) {
+      // if the signature is valid we rely on it
+      req.remote_user = credentials;
+      debug('generating a remote user');
+      next();
+    } else {
+      // with JWT throw 401
+      debug('jwt invalid token');
+      next(errorUtils.getUnauthorized(API_ERROR.BAD_USERNAME_PASSWORD));
+    }
+  }
+
+  private handleAESMiddleware(
+    req: $RequestExtend,
+    security: Security,
+    secret: string,
+    authorization: string,
+    next: Function
+  ): void {
+    debug('handle legacy api middleware');
+    debug('api middleware has a secret? %o', typeof secret === 'string');
+    debug('api middleware authorization %o', typeof authorization === 'string');
+    const credentials: any = getMiddlewareCredentials(security, secret, authorization);
+    debug('api middleware credentials %o', credentials?.name);
+    if (credentials) {
+      const cacheKey = this.getLegacyAuthCacheKey(authorization);
+      const cachedUser = this.getLegacyAuthCacheEntry(cacheKey);
+      if (cachedUser) {
+        req.remote_user = cachedUser;
+        debug('generating cached remote user');
+        return next();
+      }
+
+      const { user, password } = credentials;
+      const applyAuthResult = (err: VerdaccioError | null, user?: RemoteUser): void => {
+        if (!err && user) {
+          req.remote_user = credentials.tokenKey
+            ? { ...user, token: { key: credentials.tokenKey } }
+            : user;
+          debug('generating a remote user');
+          next();
+        } else {
+          req.remote_user = createAnonymousRemoteUser();
+          debug('generating anonymous user');
+          next(err || errorUtils.getUnauthorized(API_ERROR.BAD_USERNAME_PASSWORD));
+        }
+      };
+      // concurrent requests for the same token wait for the in-flight one
+      if (this.enqueueLegacyAuthCacheWaiter(cacheKey, applyAuthResult)) {
+        return;
+      }
+
+      debug('authenticating %o', user);
+      const onAuthComplete = (err: VerdaccioError | null, user?: RemoteUser): void => {
+        // only the leader writes the cache; waiters just reuse its result
+        if (!err && user) {
+          this.setLegacyAuthCacheEntry(
+            cacheKey,
+            credentials.tokenKey ? { ...user, token: { key: credentials.tokenKey } } : user
+          );
+        }
+        applyAuthResult(err, user);
+        this.resolveLegacyAuthCacheWaiters(cacheKey, err, user);
+      };
+      try {
+        this.authenticate(user, password, onAuthComplete);
+      } catch (err: any) {
+        onAuthComplete(errorUtils.getInternalError(err?.message));
+      }
+    } else {
+      const remoteUser = this.getJWTRemoteUserFromBearer(authorization);
+      if (remoteUser) {
+        req.remote_user = remoteUser;
+        debug('generating a remote user from jwt bearer');
+        return next();
+      }
+
+      debug('legacy invalid header');
+      return next(errorUtils.getUnauthorized(API_ERROR.BAD_USERNAME_PASSWORD));
+    }
+  }
+
+  private getJWTRemoteUserFromBearer(authorization: string): RemoteUser | void {
+    const { scheme, token } = parseAuthTokenHeader(authorization);
+    if (scheme.toUpperCase() !== TOKEN_BEARER.toUpperCase() || !token) {
+      return;
+    }
+
+    let credentials: RemoteUser | undefined;
+    try {
+      credentials = verifyJWTPayload(token, this.config.secret, this.config.security);
+    } catch {
+      return;
+    }
+
+    if (this._isRemoteUserValid(credentials)) {
+      const { name, groups } = credentials as RemoteUser;
+      return createRemoteUser(name as string, groups);
+    }
+  }
+
+  private enqueueLegacyAuthCacheWaiter(
+    cacheKey: string | void,
+    waiter: LegacyAuthCacheWaiter
+  ): boolean {
+    if (!cacheKey) {
+      return false;
+    }
+
+    const waiters = this.legacyAuthCacheWaiters.get(cacheKey);
+    if (!waiters) {
+      this.legacyAuthCacheWaiters.set(cacheKey, []);
+      return false;
+    }
+
+    waiters.push(waiter);
+    return true;
+  }
+
+  private resolveLegacyAuthCacheWaiters(
+    cacheKey: string | void,
+    err: VerdaccioError | null,
+    user?: RemoteUser
+  ): void {
+    if (!cacheKey) {
+      return;
+    }
+
+    const waiters = this.legacyAuthCacheWaiters.get(cacheKey);
+    this.legacyAuthCacheWaiters.delete(cacheKey);
+    if (!waiters) {
+      return;
+    }
+
+    for (const waiter of waiters) {
+      waiter(err, user);
+    }
+  }
+
+  private isLegacyAuthCacheEnabled(): boolean {
+    // opt-in: disabled unless explicitly turned on via config
+    return this.config.server?.legacyAuthCache?.enabled === true;
+  }
+
+  private getLegacyAuthCacheTtlMs(): number {
+    const ttlMs = this.config.server?.legacyAuthCache?.ttlMs;
+    return typeof ttlMs === 'number' && ttlMs > 0 ? ttlMs : 30 * 1000;
+  }
+
+  private getLegacyAuthCacheMaxEntries(): number {
+    const maxEntries = this.config.server?.legacyAuthCache?.maxEntries;
+    return typeof maxEntries === 'number' && maxEntries > 0 ? maxEntries : 1000;
+  }
+
+  private getLegacyAuthCacheKey(authorization: string): string | void {
+    if (!this.isLegacyAuthCacheEnabled()) {
+      return;
+    }
+
+    const { scheme } = parseAuthTokenHeader(authorization);
+    if (scheme.toUpperCase() !== TOKEN_BEARER.toUpperCase()) {
+      return;
+    }
+
+    return createHash(SHA256_ALGORITHM).update(authorization).digest('hex');
+  }
+
+  private getLegacyAuthCacheEntry(cacheKey: string | void): RemoteUser | void {
+    if (!cacheKey) {
+      return;
+    }
+
+    const entry = this.legacyAuthCache.get(cacheKey);
+    if (!entry) {
+      return;
+    }
+
+    if (entry.expiresAt <= Date.now()) {
+      this.legacyAuthCache.delete(cacheKey);
+      return;
+    }
+
+    this.legacyAuthCache.delete(cacheKey);
+    this.legacyAuthCache.set(cacheKey, entry);
+    return cloneRemoteUser(entry.user);
+  }
+
+  private setLegacyAuthCacheEntry(cacheKey: string | void, user: RemoteUser): void {
+    if (!cacheKey) {
+      return;
+    }
+
+    this.legacyAuthCache.set(cacheKey, {
+      expiresAt: Date.now() + this.getLegacyAuthCacheTtlMs(),
+      user: cloneRemoteUser(user),
+    });
+
+    const maxEntries = this.getLegacyAuthCacheMaxEntries();
+    while (this.legacyAuthCache.size > maxEntries) {
+      const oldestKey = this.legacyAuthCache.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      this.legacyAuthCache.delete(oldestKey);
+    }
+  }
+
+  private _isRemoteUserValid(remote_user?: RemoteUser): boolean {
+    return isUndefined(remote_user) === false && isUndefined(remote_user?.name) === false;
+  }
+
+  /**
+   * JWT middleware for WebUI
+   */
+  public webUIJWTmiddleware() {
+    return (req: $RequestExtend, res: $ResponseExtend, _next: NextFunction): void => {
+      if (this._isRemoteUserValid(req.remote_user)) {
+        return _next();
+      }
+
+      req.pause();
+      const next = (err: VerdaccioError | void): void => {
+        req.resume();
+        if (err) {
+          req.remote_user.error = err.message;
+          res.status(err.statusCode).send(err.message);
+        }
+
+        return _next();
+      };
+
+      const { authorization } = req.headers;
+      if (isNil(authorization)) {
+        req.remote_user = createAnonymousRemoteUser();
+        return next();
+      }
+
+      if (!isAuthHeaderValid(authorization)) {
+        return next(errorUtils.getBadRequest(API_ERROR.BAD_AUTH_HEADER));
+      }
+
+      const token = (authorization || '').replace(`${TOKEN_BEARER} `, '');
+      if (!token) {
+        return next();
+      }
+
+      let credentials: RemoteUser | undefined;
+      try {
+        credentials = verifyJWTPayload(token, this.config.secret, this.config.security);
+      } catch {
+        // FIXME: intended behaviour, do we want it?
+      }
+
+      if (this._isRemoteUserValid(credentials)) {
+        const { name, groups } = credentials as RemoteUser;
+        req.remote_user = createRemoteUser(name as string, groups);
+      } else {
+        req.remote_user = createAnonymousRemoteUser();
+      }
+
+      next();
+    };
+  }
+
+  public async jwtEncrypt(user: RemoteUser, signOptions: JWTSignOptions): Promise<string> {
+    const { real_groups, name, groups, token: tokenMetadata } = user;
+    debug('jwt encrypt %o', name);
+    const realGroupsValidated = isNil(real_groups) ? [] : real_groups;
+    const groupedGroups = isNil(groups)
+      ? real_groups
+      : Array.from(new Set([...groups.concat(realGroupsValidated)]));
+    const payload: RemoteUser = {
+      real_groups: realGroupsValidated,
+      name,
+      groups: groupedGroups,
+    };
+    if (tokenMetadata?.key) {
+      payload.token = { key: tokenMetadata.key };
+    }
+    const signedToken: string = await signPayload(
+      payload,
+      this.secret,
+      signOptions as Parameters<typeof signPayload>[2]
+    );
+
+    return signedToken;
+  }
+
+  /**
+   * Encrypt a string.
+   */
+  public aesEncrypt(value: string): string | void {
+    debug('signing with aes encryption');
+    const token = aesEncrypt(value, this.secret);
+    return token;
+  }
+}
+
+export { Auth };

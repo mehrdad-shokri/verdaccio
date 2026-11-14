@@ -1,0 +1,76 @@
+packages:
+  - packages/*
+  - packages/core/*
+  - packages/tools/*
+  - packages/ui/*
+  - packages/server/*
+  - packages/logger
+  - packages/plugins/audit
+  - packages/plugins/auth-memory
+  - packages/plugins/htpasswd
+  - packages/plugins/ui-theme
+  - packages/plugins/memory
+  - packages/plugins/local-storage
+  - packages/plugins/package-filter
+  - e2e/cli/*
+allowBuilds:
+  '@parcel/watcher': true
+  cypress: true
+  esbuild: true
+  msw: true
+  unrs-resolver: true
+minimumReleaseAge: 10080
+# pnpm 12 auto-adds new direct dependencies to minimumReleaseAgeExclude instead
+# of blocking them; strict keeps the pnpm 11 behavior (fail on immature versions)
+minimumReleaseAgeStrict: true
+minimumReleaseAgeExclude:
+  # Security update: minimatch 11 fixes GHSA-g3hv-75wg-m249.
+  - minimatch@11.0.3
+  - '@isaacs/nonrecursive-glob-match@1.0.3'
+  - '@verdaccio/*'
+  - '@verdaccio-scope/*'
+  - 'verdaccio-*'
+  # Renovate security update: dompurify@3.4.16 || 3.4.17
+  - dompurify@3.4.16 || 3.4.17
+  # Renovate security update: handlebars@4.7.10
+  - handlebars@4.7.10
+  # Renovate security update: storybook@10.6.2
+  - storybook@10.6.2
+  # Security update: body-parser@2.4.0 (GHSA-27r3-jxmh-p828)
+  - body-parser@2.4.0
+
+# Force the esbuild security patch (>= 0.28.1) across the whole tree.
+# See GHSA-gv7w-rqvm-qjhr (RCE via NPM_CONFIG_REGISTRY, fixed in 0.28.1).
+overrides:
+  esbuild: '0.28.2'
+  # Force the form-data CRLF-injection patch (>= 4.0.6) across the whole tree.
+  # Pulled in transitively via supertest > superagent (dev only).
+  # See GHSA-hmw2-7cc7-3qxx (fixed in 4.0.6).
+  form-data: '>=4.0.6'
+  # proxy-addr IP spoofing via IPv4-mapped IPv6 trust subnet, reached through express.
+  # See GHSA-jqcg-44mw-7w3h (fixed in 2.0.8).
+  proxy-addr: '>=2.0.8'
+  # compression DoS via memory leak on premature response close, reached through express.
+  # See GHSA-vc2v-76pw-4v95 (fixed in 1.8.2).
+  compression: '>=1.8.2'
+  # body-parser DoS via trailing bytes after a compressed request body, reached through express.
+  # See GHSA-27r3-jxmh-p828 (fixed in 2.4.0).
+  body-parser: '>=2.4.0'
+saveExact: true
+ignoreScripts: true
+preferFrozenLockfile: true
+
+auditConfig:
+  ignoreGhsas:
+    # braces: no patched release yet; only reached through globby with fixed '*' patterns
+    - GHSA-vfj7-8cjw-p6xm
+    # http-cache-semantics: no patched release yet; got only uses it with the `cache` option, which is never set
+    - GHSA-ch52-4w7c-c8xp
+    # Express.js unreleased
+    - GHSA-j3q9-mxjg-w52f
+    # Express.js unreleased
+    - GHSA-w7fw-mjwx-w883
+    # fast-uri: authority injection during URI serialization.
+    - GHSA-qw65-cvwx-89v3
+    # fast-uri: host confusion when parsing an unclosed authority bracket.
+    - GHSA-58mr-gqgx-xq4g

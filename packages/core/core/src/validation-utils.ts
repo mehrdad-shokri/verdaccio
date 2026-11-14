@@ -1,0 +1,207 @@
+import assert from 'node:assert';
+import semver from 'semver';
+
+import type { Manifest } from '@verdaccio/types';
+
+import { DEFAULT_PASSWORD_VALIDATION, DIST_TAGS, MAINTAINERS } from './constants';
+
+export { validatePublishSingleVersion } from './schemes/publish-manifest';
+export { validateUnPublishSingleVersion } from './schemes/unpublish-manifest';
+
+const scopedPackagePattern = /^(?:@([^/]+?)[/])?([^/]+?)$/;
+const exclusionList = ['node_modules', 'favicon.ico'];
+
+// encodeURIComponent throws on malformed UTF-16, such as a lone surrogate
+function isUrlFriendly(value: string): boolean {
+  try {
+    return encodeURIComponent(value) === value;
+  } catch {
+    return false;
+  }
+}
+
+/** Package name rules for existing packages; a leading hyphen stays valid. */
+export function validatePackageName(name: unknown): boolean {
+  if (typeof name !== 'string' || !name.length) {
+    return false;
+  }
+  if (name.startsWith('.') || name.startsWith('_') || name.trim() !== name) {
+    return false;
+  }
+  if (exclusionList.includes(name.toLowerCase())) {
+    return false;
+  }
+  if (isUrlFriendly(name)) {
+    return true;
+  }
+  const nameMatch = name.match(scopedPackagePattern);
+  if (!nameMatch) {
+    return false;
+  }
+  const [, user, pkg] = nameMatch;
+  return user !== undefined && isUrlFriendly(user) && !pkg.startsWith('.') && isUrlFriendly(pkg);
+}
+
+export function isPackageNameScoped(name: string): boolean {
+  return name.startsWith('@');
+}
+
+/**
+ * From normalize-package-data/lib/fixer.js
+ * @param {*} name  the package name
+ * @return {Boolean} whether is valid or not
+ */
+export function validateName(name: string): boolean {
+  if (typeof name !== 'string') {
+    return false;
+  }
+
+  // scoped names are checked segment by segment
+  if (isPackageNameScoped(name) && name.includes('/')) {
+    return validatePackage(name);
+  }
+
+  const normalizedName: string = name.toLowerCase();
+
+  /**
+   * Some context about the first regex
+   * - npm used to have a different tarball naming system.
+   * eg: http://registry.npmjs.com/thirty-two
+   * https://registry.npmjs.org/thirty-two/-/thirty-two@0.0.1.tgz
+   * The file name thirty-two@0.0.1.tgz, the version and the pkg name was separated by an at (@)
+   * while nowadays the naming system is based in dashes
+   * https://registry.npmjs.org/verdaccio/-/verdaccio-1.4.0.tgz
+   *
+   * more info here: https://github.com/rlidwka/sinopia/issues/75
+   */
+  return !(
+    !normalizedName.match(/^[-a-zA-Z0-9_.!~*'()@]+$/) ||
+    normalizedName.startsWith('.') || // ".bin", etc.
+    ['node_modules', '__proto__', 'favicon.ico'].includes(normalizedName)
+  );
+}
+
+/**
+ * Validate a package.
+ * @return {Boolean} whether the package is valid or not
+ */
+export function validatePackage(name: string): boolean {
+  if (!isValidPackagePath(name)) {
+    return false;
+  }
+  return validatePackageName(name);
+}
+
+function isValidPackagePath(name: string): boolean {
+  // Split on every separator (no limit) so trailing or interior slashes are not
+  // silently dropped, keeping a single canonical form per package name.
+  const nameList = name.split('/');
+  if (nameList.length === 1) {
+    // normal package
+    return validateName(nameList[0]);
+  } else if (nameList.length === 2) {
+    // scoped package
+    return (
+      nameList[0][0] === '@' && validateName(nameList[0].slice(1)) && validateName(nameList[1])
+    );
+  }
+  // anything with 3+ segments is never a valid package name
+  return false;
+}
+
+/**
+ * Validate the package metadata, add additional properties whether are missing within
+ * the metadata properties.
+ * @param {*} manifest
+ * @param {*} name
+ * @return {Object} the object with additional properties as dist-tags ad versions
+ */
+export function normalizeMetadata(manifest: Manifest, name: string): Manifest {
+  assert.strictEqual(manifest.name, name);
+  const _manifest = { ...manifest };
+
+  if (!isObject(manifest[DIST_TAGS])) {
+    _manifest[DIST_TAGS] = {};
+  }
+
+  if (!Array.isArray(manifest[MAINTAINERS])) {
+    _manifest[MAINTAINERS] = [];
+  }
+
+  // This may not be needed
+  if (!isObject(manifest['versions'])) {
+    _manifest['versions'] = {};
+  }
+
+  if (!isObject(manifest['time'])) {
+    _manifest['time'] = {};
+  }
+
+  return _manifest;
+}
+
+/**
+ * Check whether an element is an Object
+ * @param {*} obj the element
+ * @return {Boolean}
+ */
+export function isObject(obj: any): boolean {
+  // if (obj === null || typeof obj === 'undefined' || typeof obj === 'string') {
+  //   return false;
+  // }
+
+  // return (
+  //   (typeof obj === 'object' || typeof obj.prototype === 'undefined') &&
+  //   Array.isArray(obj) === false
+  // );
+  return Object.prototype.toString.call(obj) === '[object Object]';
+}
+
+export function validatePassword(
+  password: unknown,
+  validation: RegExp | string = DEFAULT_PASSWORD_VALIDATION
+): boolean {
+  if (typeof password !== 'string') {
+    return false;
+  }
+
+  let regex: RegExp;
+  if (validation instanceof RegExp) {
+    regex = validation;
+  } else if (typeof validation === 'string') {
+    // YAML config loads `passwordValidationRegex` as a plain string,
+    // so coerce it into a RegExp here. Invalid patterns fall back to false.
+    try {
+      regex = new RegExp(validation);
+    } catch {
+      return false;
+    }
+  } else {
+    return false;
+  }
+
+  return password.match(regex) !== null;
+}
+
+export function validateUserName(userName: any, expectedName: string): boolean {
+  return (
+    typeof userName === 'string' &&
+    userName.split(':')[0] === 'org.couchdb.user' &&
+    userName.split(':')[1] === expectedName
+  );
+}
+
+/**
+ * Check that a value is an exact semver as stored in a manifest, never a range, tag, or loose form.
+ * @param version the value to check, usually a route parameter
+ * @return true for `1.2.3`, `1.2.3-beta.1` or `1.2.3+build.1`; false for `v1.2.3` or ` 1.2.3 `
+ */
+export function validateExactVersion(version: unknown): version is string {
+  // semver.valid trims whitespace and strips a leading 'v'; the lookup is exact, so reject both.
+  return (
+    typeof version === 'string' &&
+    version === version.trim() &&
+    /^\d/.test(version) &&
+    semver.valid(version) !== null
+  );
+}

@@ -1,0 +1,157 @@
+import path from 'node:path';
+import supertest from 'supertest';
+import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
+
+import { HEADERS, HEADER_TYPE, HTTP_STATUS } from '@verdaccio/core';
+import { setup } from '@verdaccio/logger';
+import { publishVersion } from '@verdaccio/test-helper';
+
+import { NOT_README_FOUND } from '../src/api/readme';
+import { initializeServer } from './helper';
+
+beforeAll(async () => {
+  await setup({});
+});
+
+const mockManifest = vi.hoisted(() => vi.fn());
+vi.mock('@verdaccio/ui-theme', () => ({ default: (...args: any[]) => mockManifest()(...args) }));
+
+describe('readme api', () => {
+  beforeAll(() => {
+    mockManifest.mockReturnValue(() => ({
+      staticPath: path.join(import.meta.dirname, 'static'),
+      manifestFiles: {
+        js: ['runtime.js', 'vendors.js', 'main.js'],
+      },
+      manifest: require('./partials/manifest/manifest.json'),
+    }));
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    mockManifest.mockClear();
+  });
+
+  test('should fetch readme scoped package', async () => {
+    const app = await initializeServer('default-test.yaml');
+    await publishVersion(app, '@scope/pk1-test', '1.0.0', { readme: 'my readme scoped' });
+    const response = await supertest(app)
+      .get('/-/verdaccio/data/package/readme/@scope/pk1-test')
+      .set('Accept', HEADERS.TEXT_PLAIN)
+      .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.TEXT_PLAIN_UTF8)
+      .expect(HTTP_STATUS.OK);
+    expect(response.text).toMatch('my readme scoped');
+  }, 70000);
+
+  test('should fetch readme scoped package with not found message', async () => {
+    const app = await initializeServer('default-test.yaml');
+    await publishVersion(app, '@scope/pk1-test', '1.0.0', { readme: null });
+    const response = await supertest(app)
+      .get('/-/verdaccio/data/package/readme/@scope/pk1-test')
+      .set('Accept', HEADERS.TEXT_PLAIN)
+      .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.TEXT_PLAIN_UTF8)
+      .expect(HTTP_STATUS.OK);
+    expect(response.text).toMatch(NOT_README_FOUND);
+  });
+
+  test('should fetch readme a package', async () => {
+    const app = await initializeServer('default-test.yaml');
+    await publishVersion(app, 'pk1-test', '1.0.0', { readme: 'my readme' });
+    const response = await supertest(app)
+      .get('/-/verdaccio/data/package/readme/pk1-test')
+      .set('Accept', HEADERS.TEXT_PLAIN)
+      .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.TEXT_PLAIN_UTF8)
+      .expect(HTTP_STATUS.OK);
+    expect(response.text).toMatch('my readme');
+  });
+
+  test('should fetch readme a package with not found message', async () => {
+    const app = await initializeServer('default-test.yaml');
+    await publishVersion(app, 'pk1-test', '1.0.0', { readme: null });
+    const response = await supertest(app)
+      .get('/-/verdaccio/data/package/readme/pk1-test')
+      .set('Accept', HEADERS.TEXT_PLAIN)
+      .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.TEXT_PLAIN_UTF8)
+      .expect(HTTP_STATUS.OK);
+    expect(response.text).toMatch(NOT_README_FOUND);
+  });
+
+  test('should answer with the not found message when the stored readme is not a string', async () => {
+    const app = await initializeServer('default-test.yaml');
+    const readme = { not: 'a string' } as unknown as string;
+    await publishVersion(app, 'pk1-test', '1.0.0', { readme });
+    const response = await supertest(app)
+      .get('/-/verdaccio/data/package/readme/pk1-test')
+      .set('Accept', HEADERS.TEXT_PLAIN)
+      .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.TEXT_PLAIN_UTF8)
+      .expect(HTTP_STATUS.OK);
+    expect(response.text).toMatch(NOT_README_FOUND);
+  });
+
+  test('should fetch readme with keeping all readmes (latest)', async () => {
+    const app = await initializeServer('keep-all-readmes.yaml');
+    await publishVersion(app, 'pk1-test', '1.0.0', { readme: 'my readme' });
+    const response = await supertest(app)
+      .get('/-/verdaccio/data/package/readme/pk1-test')
+      .set('Accept', HEADERS.TEXT_PLAIN)
+      .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.TEXT_PLAIN_UTF8)
+      .expect(HTTP_STATUS.OK);
+    expect(response.text).toMatch('my readme');
+  });
+
+  test('should fetch readme with keeping all readmes (version)', async () => {
+    const app = await initializeServer('keep-all-readmes.yaml');
+    await publishVersion(app, 'pk1-test', '1.0.0', { readme: 'my readme' });
+    await publishVersion(app, 'pk1-test', '1.2.0', { readme: 'my new readme' });
+    const response = await supertest(app)
+      .get('/-/verdaccio/data/package/readme/pk1-test')
+      .set('Accept', HEADERS.TEXT_PLAIN)
+      .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.TEXT_PLAIN_UTF8)
+      .expect(HTTP_STATUS.OK);
+    expect(response.text).toMatch('my new readme');
+    const response2 = await supertest(app)
+      .get('/-/verdaccio/data/package/readme/pk1-test?v=1.0.0')
+      .set('Accept', HEADERS.TEXT_PLAIN)
+      .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.TEXT_PLAIN_UTF8)
+      .expect(HTTP_STATUS.OK);
+    expect(response2.text).toMatch('my readme');
+  });
+
+  test('should resolve a dist-tag used as version', async () => {
+    const app = await initializeServer('keep-all-readmes.yaml');
+    await publishVersion(app, 'pk2-test', '1.0.0', { readme: 'my readme' });
+    await publishVersion(app, 'pk2-test', '1.2.0', { readme: 'my new readme' });
+    const response = await supertest(app)
+      .get('/-/verdaccio/data/package/readme/pk2-test?v=latest')
+      .set('Accept', HEADERS.TEXT_PLAIN)
+      .expect(HEADER_TYPE.CONTENT_TYPE, HEADERS.TEXT_PLAIN_UTF8)
+      .expect(HTTP_STATUS.OK);
+    expect(response.text).toMatch('my new readme');
+  });
+
+  test('should return 404 for a package that does not exist', async () => {
+    const app = await initializeServer('default-test.yaml');
+    await supertest(app)
+      .get('/-/verdaccio/data/package/readme/pk-missing')
+      .set('Accept', HEADERS.TEXT_PLAIN)
+      .expect(HTTP_STATUS.NOT_FOUND);
+  });
+
+  test('should return 404 for a version that does not exist instead of falling back to latest', async () => {
+    const app = await initializeServer('default-test.yaml');
+    await publishVersion(app, 'pk1-test', '1.0.0', { readme: 'my readme' });
+    await supertest(app)
+      .get('/-/verdaccio/data/package/readme/pk1-test?v=9.9.9')
+      .set('Accept', HEADERS.TEXT_PLAIN)
+      .expect(HTTP_STATUS.NOT_FOUND);
+  });
+
+  test('should return 404 for __proto__ as version (inherited properties never validate)', async () => {
+    const app = await initializeServer('default-test.yaml');
+    await publishVersion(app, 'pk1-test', '1.0.0', { readme: 'my readme' });
+    await supertest(app)
+      .get('/-/verdaccio/data/package/readme/pk1-test?v=__proto__')
+      .set('Accept', HEADERS.TEXT_PLAIN)
+      .expect(HTTP_STATUS.NOT_FOUND);
+  });
+});

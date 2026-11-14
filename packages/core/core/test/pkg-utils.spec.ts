@@ -1,0 +1,100 @@
+import { describe, expect, test } from 'vitest';
+
+import { DIST_TAGS, pkgUtils } from '../src';
+
+describe('pkg-utils', () => {
+  test('getLatest fails if no versions', () => {
+    expect(() =>
+      // @ts-expect-error
+      pkgUtils.getLatest({
+        versions: {},
+      })
+    ).toThrow('cannot get lastest version of none');
+  });
+
+  test('getLatest get latest', () => {
+    expect(
+      pkgUtils.getLatest({
+        versions: {
+          // @ts-expect-error
+          '1.0.0': {},
+        },
+        [DIST_TAGS]: {
+          latest: '1.0.0',
+        },
+      })
+    ).toBe('1.0.0');
+  });
+
+  test('semverSort', () => {
+    expect(pkgUtils.semverSort(['1.2.3', '1.2', '1.2.3a', '1.2.3c', '1.2.3-b'])).toStrictEqual([
+      '1.2.3a',
+      '1.2.3-b',
+      '1.2.3c',
+      '1.2.3',
+    ]);
+  });
+
+  test.each(['1.2.3', '01.2.3', 'v1.2.3', '=1.2.3', '1.2.3beta', '1.2.3-beta.1', '1.2.3+build.1'])(
+    'isValidVersion accepts %s',
+    (version) => {
+      expect(pkgUtils.isValidVersion(version)).toBe(true);
+    }
+  );
+
+  test.each(['latest', '^1.2.3', '1.2', '1.2.3.4', '', 'garbage', undefined, null, 1])(
+    'isValidVersion rejects %s',
+    (version) => {
+      expect(pkgUtils.isValidVersion(version)).toBe(false);
+    }
+  );
+
+  test('semverSanitize', () => {
+    expect(pkgUtils.semverSanitize('1.0.0')).toBe('1.0.0');
+    expect(pkgUtils.semverSanitize('1.0.0-beta.1')).toBe('1.0.0-beta.1');
+    expect(pkgUtils.semverSanitize('1.2')).toBe('1.2.0');
+    expect(pkgUtils.semverSanitize('v2')).toBe('2.0.0');
+    expect(pkgUtils.semverSanitize('v2-alpha.1')).toBe('2.0.0-alpha.1');
+  });
+});
+
+describe('parsePackageSpec', () => {
+  test('splits plain and scoped specs on the last @', () => {
+    expect(pkgUtils.parsePackageSpec('semver@7.8.6')).toEqual({ name: 'semver', version: '7.8.6' });
+    expect(pkgUtils.parsePackageSpec('@scope/pkg@1.0.0-beta.1')).toEqual({
+      name: '@scope/pkg',
+      version: '1.0.0-beta.1',
+    });
+  });
+
+  test('rejects specs without an exact version or with an invalid name', () => {
+    for (const spec of [
+      'semver',
+      '@scope/pkg',
+      'semver@',
+      'semver@^7.0.0',
+      'semver@latest',
+      'semver@v7.8.6',
+      '../../etc@1.0.0',
+      '@scope/__proto__@1.0.0',
+      'semver@1.0.0/../2.0.0',
+    ]) {
+      expect(pkgUtils.parsePackageSpec(spec)).toBeNull();
+    }
+  });
+});
+
+describe('getPackageJson', () => {
+  test('@verdaccio/core', () => {
+    const packageJson = pkgUtils.getPackageJson(import.meta.dirname, '..');
+    expect(packageJson).toBeDefined();
+    expect(packageJson.name).toBe('@verdaccio/core');
+  });
+
+  test('@verdaccio/test', () => {
+    const packageJson = pkgUtils.getPackageJson(import.meta.dirname, '__partials__');
+    expect(packageJson).toBeDefined();
+    expect(packageJson.name).toBe('@verdaccio/test');
+    expect(packageJson.version).toBe('8.0.0');
+  });
+});

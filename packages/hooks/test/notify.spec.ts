@@ -1,0 +1,393 @@
+import nock from 'nock';
+import { beforeAll, beforeEach, describe, expect, test } from 'vitest';
+
+import { createRemoteUser, parseConfigFile } from '@verdaccio/config';
+import { setup } from '@verdaccio/logger';
+import { generatePackageMetadata } from '@verdaccio/test-helper';
+import type { Config } from '@verdaccio/types';
+
+import { notify } from '../src';
+import { parseConfigurationFile } from './__helper';
+
+const parseConfigurationNotifyFile = (name: string) => {
+  return parseConfigurationFile(name);
+};
+
+beforeAll(async () => {
+  await setup({});
+});
+
+const domain = 'http://slack-service';
+
+const options = {
+  path: '/foo?auth_token=mySecretToken',
+};
+
+describe('Notifications', () => {
+  beforeEach(() => {
+    nock.cleanAll();
+  });
+
+  test('when sending a empty notification', async () => {
+    nock(domain).post(options.path).reply(200, { body: 'test' });
+
+    const notificationResponse = await notify(
+      generatePackageMetadata('bar'),
+      // @ts-expect-error notify expects Config but we are testing invalid config
+      {},
+      createRemoteUser('foo', []),
+      'bar'
+    );
+    expect(notificationResponse).toEqual([false]);
+  });
+
+  test('when template is invalid', async () => {
+    nock(domain).post(options.path).reply(200, { body: 'test' });
+    const config = parseConfigFile(parseConfigurationNotifyFile('single.header.post.notify'));
+    const notificationResponse = await notify(
+      generatePackageMetadata('bar'),
+
+      {
+        // @ts-expect-error notify expects Config but we are testing partial config
+        notify: {
+          ...config.notify,
+          content: 'invalid format {{{{',
+        },
+      },
+      createRemoteUser('foo', []),
+      'bar'
+    );
+    expect(notificationResponse).toEqual([false]);
+  });
+
+  test('when sending a single notification POST', async () => {
+    nock(domain)
+      .post(options.path, (body) => {
+        expect(body).toEqual({
+          color: 'green',
+          message: 'New package published: * bar*',
+          message_format: 'text',
+          notify: true,
+        });
+        return true;
+      })
+      .reply(200);
+    const config = parseConfigFile(
+      parseConfigurationNotifyFile('single.header.post.notify')
+    ) as Partial<Config>;
+    const notificationResponse = await notify(
+      generatePackageMetadata('bar', '1.0.0'),
+      // @ts-expect-error notify expects Config but we are testing partial config
+      config,
+      createRemoteUser('foo', []),
+      'bar'
+    );
+    expect(notificationResponse).toEqual([true]);
+  });
+
+  test('when sending a single notification with packagePattern', async () => {
+    nock(domain)
+      .post(options.path, (body) => {
+        expect(body).toEqual({
+          color: 'green',
+          message: 'New package published: * verdaccio*',
+          message_format: 'text',
+          notify: true,
+        });
+        return true;
+      })
+      .reply(200);
+    const config = parseConfigFile(
+      parseConfigurationNotifyFile('single.header.post.notify')
+    ) as Partial<Config>;
+    const notificationResponse = await notify(
+      generatePackageMetadata('verdaccio', '1.0.0'),
+      {
+        notify: {
+          ...config.notify,
+          // @ts-expect-error regex is valid
+          packagePattern: 'verdaccio*',
+          packagePatternFlags: 'g',
+        },
+      },
+      createRemoteUser('foo', []),
+      'verdaccio'
+    );
+
+    expect(notificationResponse).toEqual([true]);
+  });
+
+  test('when sending a single notification PUT', async () => {
+    nock(domain)
+      .put(options.path, (body) => {
+        expect(body).toEqual({
+          color: 'green',
+          message: 'New package published: * bar*',
+          message_format: 'text',
+          notify: true,
+        });
+        return true;
+      })
+      .reply(200);
+    const config = parseConfigFile(
+      parseConfigurationNotifyFile('single.header.put.notify')
+    ) as Partial<Config>;
+    const notificationResponse = await notify(
+      generatePackageMetadata('bar', '1.0.0'),
+      // @ts-expect-error notify expects Config but we are testing partial config
+      config,
+      createRemoteUser('foo', []),
+      'bar'
+    );
+    expect(notificationResponse).toEqual([true]);
+  });
+
+  test('fallback to POST if method is invalid', async () => {
+    nock(domain)
+      .post(options.path, (body) => {
+        expect(body).toEqual({
+          color: 'green',
+          message: 'New package published: * bar*',
+          message_format: 'text',
+          notify: true,
+        });
+        return true;
+      })
+      .reply(200);
+    const config = parseConfigFile(
+      parseConfigurationNotifyFile('single.header.post.notify')
+    ) as Partial<Config>;
+    const notificationResponse = await notify(
+      generatePackageMetadata('bar', '1.0.0'),
+      {
+        // @ts-expect-error notify expects Config but we are testing partial config
+        notify: {
+          ...config.notify,
+          method: 'INVALID_METHOD',
+        },
+      },
+      createRemoteUser('foo', []),
+      'bar'
+    );
+    expect(notificationResponse).toEqual([true]);
+  });
+
+  test('when sending a single notification GET', async () => {
+    nock(domain)
+      .get('/foo')
+      .query((actualQueryObject) => {
+        expect(JSON.parse(actualQueryObject.body as string)).toEqual({
+          color: 'green',
+          message: 'New package published: * bar*',
+          message_format: 'text',
+          notify: true,
+        });
+        return true;
+      })
+      .reply(200);
+    const config = parseConfigFile(
+      parseConfigurationNotifyFile('single.header.get.notify')
+    ) as Partial<Config>;
+    const notificationResponse = await notify(
+      generatePackageMetadata('bar', '1.0.0'),
+      // @ts-expect-error notify expects Config but we are testing partial config
+      config,
+      createRemoteUser('foo', []),
+      'bar'
+    );
+    expect(notificationResponse).toEqual([true]);
+  });
+
+  test('when single notification is invalid, returns false', async () => {
+    const invalidNotificationConfig = {
+      notify: {
+        foo: 'bar',
+      },
+    };
+
+    const responses = await notify(
+      generatePackageMetadata('bar'),
+      // @ts-expect-error notify expects Config but we are testing partial config
+      invalidNotificationConfig,
+      { name: 'foo' },
+      'bar'
+    );
+
+    expect(responses).toEqual([false]);
+  });
+
+  test('when endpoint fails with 400', async () => {
+    nock(domain)
+      .post(options.path, (body) => {
+        expect(body).toEqual({
+          color: 'green',
+          message: 'New package published: * bar*',
+          message_format: 'text',
+          notify: true,
+        });
+        return true;
+      })
+      .reply(400, { error: 'bad request local server' });
+    const config = parseConfigFile(parseConfigurationNotifyFile('single.header.post.notify'));
+    const notificationResponse = await notify(
+      generatePackageMetadata('bar', '1.0.0'),
+      // @ts-expect-error notify expects Config but we are testing partial config
+      config,
+      createRemoteUser('foo', []),
+      'bar'
+    );
+    expect(notificationResponse).toEqual([false]);
+  });
+
+  test('when publisher metadata is missing, publish fields are filled from fallback metadata', async () => {
+    nock(domain)
+      .post(options.path, (body) => {
+        expect(body).toHaveProperty('publisher', 'foo');
+        expect(body).toHaveProperty('publishedPackage', 'bar');
+        expect(body).toHaveProperty('publishType', 'publish');
+        return true;
+      })
+      .reply(200);
+
+    const config = parseConfigFile(parseConfigurationNotifyFile('single.notify.publisher'));
+    const notificationResponse = await notify(
+      generatePackageMetadata('bar', '1.0.0'),
+      // @ts-expect-error notify expects Config but we are testing partial config
+      config,
+      createRemoteUser('foo', []),
+      'bar',
+      'publish'
+    );
+
+    expect(notificationResponse).toEqual([true]);
+  });
+
+  test('when publisher metadata is present, template is still compiled', async () => {
+    nock(domain)
+      .post(options.path, (body) => {
+        expect(body).toHaveProperty('publisher', 'existing-publisher');
+        return true;
+      })
+      .reply(200);
+
+    const config = parseConfigFile(parseConfigurationNotifyFile('single.notify.publisher'));
+    const metadata = {
+      ...generatePackageMetadata('bar', '1.0.0'),
+      publisher: { name: 'existing-publisher' },
+    };
+    const notificationResponse = await notify(
+      metadata,
+      // @ts-expect-error notify expects Config but we are testing partial config
+      config,
+      createRemoteUser('foo', []),
+      'bar',
+      'publish'
+    );
+
+    expect(notificationResponse).toEqual([true]);
+  });
+
+  test('does not leak the remote user auth token to the notification endpoint', async () => {
+    nock(domain)
+      .post(options.path, (body) => {
+        // token must be empty (the field is not exposed on the publisher object)
+        expect(body).toEqual({ name: 'foo', token: '', group: 'rg1' });
+        return true;
+      })
+      .reply(200);
+
+    const config = {
+      notify: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        endpoint: `${domain}${options.path}`,
+        content:
+          '{"name":"{{publisher.name}}","token":"{{publisher.token.key}}","group":"{{publisher.real_groups.[0]}}"}',
+      },
+    };
+
+    const remoteUser = {
+      name: 'foo',
+      groups: ['g1'],
+      real_groups: ['rg1'],
+      token: { key: 'super-secret' },
+    };
+
+    const notificationResponse = await notify(
+      generatePackageMetadata('bar', '1.0.0'),
+      // @ts-expect-error notify expects Config but we are testing partial config
+      config,
+      // @ts-expect-error verifying the token field is never forwarded
+      remoteUser,
+      'bar',
+      'publish'
+    );
+
+    expect(notificationResponse).toEqual([true]);
+  });
+
+  test('when notification endpoint is missing', async () => {
+    nock(domain).post(options.path).reply(200);
+    const config: Partial<Config> = {
+      // @ts-expect-error endpoint is missing
+      notify: {
+        method: 'POST',
+        endpoint: undefined,
+        content: '',
+      },
+    };
+    const notificationResponse = await notify(
+      generatePackageMetadata('bar', '1.0.0'),
+      // @ts-expect-error notify expects Config but we are testing partial config
+      config,
+      createRemoteUser('foo', []),
+      'bar'
+    );
+    expect(notificationResponse).toEqual([false]);
+  });
+
+  test('when multiple notifications', async () => {
+    nock(domain)
+      .post(options.path)
+      .once()
+      .reply(200, { body: 'test' })
+      .post(options.path)
+      .once()
+      .reply(400, {})
+      .post(options.path)
+      .once()
+      .reply(500, { message: 'Something bad happened' });
+
+    const multiNotificationConfig = parseConfigFile(
+      parseConfigurationNotifyFile('multiple.notify')
+    );
+    const responses = await notify(
+      generatePackageMetadata('bar'),
+      // @ts-expect-error notify expects Config but we are testing partial config
+      multiNotificationConfig,
+      { name: 'foo' },
+      'bar'
+    );
+    expect(responses).toEqual([true, false, false]);
+  });
+
+  test('when all notifications are invalid, returns all false', async () => {
+    const invalidNotifications = {
+      notify: {
+        first: { foo: 'bar' },
+        second: { endpoint: 'http://domain.com' },
+        third: { content: 'template' },
+      },
+    };
+
+    const responses = await notify(
+      generatePackageMetadata('bar'),
+      // @ts-expect-error notify expects Config but we are testing partial config
+      invalidNotifications,
+      { name: 'foo' },
+      'bar'
+    );
+
+    expect(responses).toEqual([false, false, false]);
+  });
+});

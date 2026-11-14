@@ -1,0 +1,138 @@
+{
+  "extends": ["config:recommended"],
+  "prConcurrentLimit": 2,
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "dependencyDashboard": false,
+  "ignorePaths": ["docker-examples/**", "**/mock-store/corrupted-package/**"],
+  "schedule": ["on the 1,11,21 day of the month"],
+  "ignoreDeps": ["customprefix-auth", "@orama/orama"],
+  "baseBranchPatterns": ["master", "8.x", "6.x", "7.x"],
+  "semanticCommitType": "fix",
+  "labels": ["bot: dependencies"],
+  "packageRules": [
+    {
+      "description": "Forbid major updates on 8.x branch",
+      "matchBaseBranches": ["8.x"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "Restrict 6.x to non-major, no devDeps, no actions, no docker",
+      "matchBaseBranches": ["6.x"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "matchBaseBranches": ["6.x"],
+      "matchDepTypes": ["devDependencies"],
+      "enabled": false
+    },
+    {
+      "matchBaseBranches": ["6.x"],
+      "matchManagers": ["github-actions"],
+      "enabled": false
+    },
+    {
+      "matchBaseBranches": ["6.x"],
+      "matchDatasources": ["docker"],
+      "enabled": false
+    },
+    {
+      "description": "Group all GitHub Actions; pin digests",
+      "matchManagers": ["github-actions"],
+      "pinDigests": true,
+      "groupName": "all actions",
+      "groupSlug": "github-actions",
+      "schedule": ["every 3 months"]
+    },
+    {
+      "description": "Split Docker GitHub Actions into their own group",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["docker/*"],
+      "groupName": "docker actions",
+      "groupSlug": "docker-actions",
+      "pinDigests": true
+    },
+    {
+      "description": "Group all Docker image updates",
+      "matchDatasources": ["docker"],
+      "groupName": "all docker images",
+      "groupSlug": "docker-images",
+      "labels": ["bot: docker-update"]
+    },
+    {
+      "description": "Pin Docker node image: 22.x on 6.x",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["node"],
+      "matchBaseBranches": ["6.x"],
+      "allowedVersions": "/^22/"
+    },
+    {
+      "description": "Pin Docker node image: 24.x on master and 7.x",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["node"],
+      "matchBaseBranches": ["master", "7.x"],
+      "allowedVersions": "/^24/"
+    },
+    {
+      "description": "Do not update internal verdaccio packages (managed via workspace + changesets)",
+      "matchPackageNames": [
+        "verdaccio",
+        "@verdaccio/*",
+        "verdaccio-audit",
+        "verdaccio-htpasswd",
+        "verdaccio-auth-memory",
+        "verdaccio-memory"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "UI deps (minor/patch)",
+      "matchPackageNames": [
+        "@emotion/*",
+        "@hookform/*",
+        "@microlink/*",
+        "@mui/*",
+        "@testing-library/*",
+        "aria-query",
+        "country-flag-icons",
+        "dayjs",
+        "dompurify",
+        "highlight.js",
+        "i18next",
+        "js-base64",
+        "localstorage-memory",
+        "lodash-es",
+        "marked",
+        "marked-highlight",
+        "normalize.css",
+        "react",
+        "react-*",
+        "semver",
+        "swr",
+        "validator",
+        "yup"
+      ],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "ui dependencies",
+      "groupSlug": "all-ui",
+      "matchBaseBranches": ["master"],
+      "schedule": ["every 1 month"]
+    },
+    {
+      "description": "TypeScript deps (minor/patch)",
+      "matchPackageNames": ["@types/*", "typescript"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "typescript dependencies",
+      "groupSlug": "all-types",
+      "matchBaseBranches": ["master", "7.x"]
+    },
+    {
+      "description": "All major updates: isolated PRs on a slow cadence (master + 7.x)",
+      "matchUpdateTypes": ["major"],
+      "matchBaseBranches": ["master", "7.x"],
+      "schedule": ["every 2 months"]
+    }
+  ]
+}

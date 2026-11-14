@@ -1,0 +1,94 @@
+import type { AutocompleteRenderGroupParams } from '@mui/material/Autocomplete';
+import Autocomplete from '@mui/material/Autocomplete';
+import type { FC } from 'react';
+import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import type { SearchResultWeb } from '@verdaccio/types';
+
+import { Wrapper } from './styles';
+
+export type OnSelecItem = (
+  event: React.SyntheticEvent,
+  value: SearchResultWeb,
+  reason: string,
+  details?: string
+) => void;
+interface Props {
+  suggestions?: SearchResultWeb[];
+  suggestionsLoading?: boolean;
+  hasError?: boolean;
+  placeholder: string;
+  renderOption?: (props: any, option: any) => React.JSX.Element;
+  renderInput: (params: any) => React.JSX.Element;
+  onSuggestionsFetch: any;
+  getOptionLabel: (option: any) => any;
+  onCleanSuggestions: (event: React.SyntheticEvent) => void;
+  onSelectItem: OnSelecItem;
+  groupBy?: (option: any) => string;
+  renderGroup?: (params: AutocompleteRenderGroupParams) => React.ReactNode;
+}
+
+const AutoComplete: FC<Props> = ({
+  suggestions = [],
+  onSuggestionsFetch,
+  onCleanSuggestions,
+  renderInput,
+  renderOption,
+  getOptionLabel,
+  onSelectItem,
+  suggestionsLoading = false,
+  hasError = false,
+  groupBy,
+  renderGroup,
+}: Props) => {
+  const { t } = useTranslation();
+  const [inputValue, setInputValue] = useState('');
+
+  const handleOnInputChange = (event: React.SyntheticEvent, value: string, reason: string) => {
+    if (reason === 'input') {
+      event.preventDefault();
+      onSuggestionsFetch({ value });
+      setInputValue(value);
+    } else if (reason === 'clear') {
+      onCleanSuggestions(event);
+      setInputValue('');
+    }
+  };
+
+  const handleOnClose = (event) => {
+    onCleanSuggestions(event);
+    setInputValue('');
+  };
+
+  // @ts-ignore
+  return (
+    <Wrapper>
+      <Autocomplete
+        /* @ts-ignore */
+        clearOnBlur={true}
+        disablePortal={true}
+        filterOptions={(options, state) => (state.inputValue.trim() ? options : [])}
+        fullWidth={true}
+        getOptionLabel={getOptionLabel}
+        groupBy={groupBy}
+        id="search-header-suggest"
+        inputValue={inputValue}
+        loading={suggestionsLoading}
+        loadingText={t('autoComplete.loading')}
+        // a failed search must not read as "no results found"
+        noOptionsText={hasError ? t('autoComplete.error') : t('autoComplete.no-results-found')}
+        onChange={onSelectItem as any}
+        onClose={handleOnClose}
+        onInputChange={handleOnInputChange}
+        options={hasError ? [] : suggestions}
+        renderInput={renderInput}
+        renderGroup={renderGroup}
+        renderOption={renderOption}
+        renderTags={() => null}
+      />
+    </Wrapper>
+  );
+};
+
+export default AutoComplete;

@@ -1,0 +1,70 @@
+{
+  "name": "@verdaccio/url",
+  "version": "14.0.0-next-9.44",
+  "description": "Verdaccio URL Utilities",
+  "keywords": [
+    "private",
+    "package",
+    "repository",
+    "registry",
+    "enterprise",
+    "modules",
+    "proxy",
+    "server",
+    "verdaccio"
+  ],
+  "main": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "author": "Juan Picado <juanpicado19@gmail.com>",
+  "license": "MIT",
+  "homepage": "https://verdaccio.org",
+  "engines": {
+    "node": ">=24"
+  },
+  "repository": {
+    "type": "https",
+    "url": "https://github.com/verdaccio/verdaccio",
+    "directory": "packages/core/url"
+  },
+  "bugs": {
+    "url": "https://github.com/verdaccio/verdaccio/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@verdaccio/core": "workspace:9.0.0-next-9.44",
+    "debug": "4.4.3",
+    "validator": "13.15.35"
+  },
+  "devDependencies": {
+    "node-mocks-http": "1.18.1",
+    "rimraf": "6.1.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  },
+  "scripts": {
+    "clean": "rimraf ./build",
+    "test": "vitest run --fsModuleCachePath node_modules/.vitest-cache",
+    "watch": "vite build --watch",
+    "build": "vite build"
+  },
+  "funding": {
+    "type": "opencollective",
+    "url": "https://opencollective.com/verdaccio"
+  },
+  "module": "./build/index.mjs",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./build/index.d.ts",
+        "default": "./build/index.mjs"
+      },
+      "require": {
+        "types": "./build/index.d.ts",
+        "default": "./build/index.js"
+      }
+    },
+    "./build/*": "./build/*"
+  }
+}

@@ -2,39 +2,46 @@
 
 ## Supported versions
 
-The following table describes the versions of this project that are currently supported with security updates:
+| Line          | Status                       | Security fixes                                                               |
+| ------------- | ---------------------------- | ---------------------------------------------------------------------------- |
+| 7.x           | current stable (`latest`)    | yes, expedited releases                                                      |
+| 6.x           | maintenance                  | security fixes only, for 8 months after the 7.0.0 release (until 2027-06-25) |
+| 9.x           | next (`next-9`, pre-release) | yes: 7.x runs the 9.x modules, so a fix for one is a fix for both            |
+| 5.x and older | deprecated                   | no                                                                           |
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 2.x   | :x:                  |
-| 3.x   | :x:   |
-| 4.x   | :white_check_mark:   |
+The full table, including Node.js, npm tags and Docker images per line, is in the [version history](https://github.com/verdaccio/verdaccio/blob/master/VERSIONS.md).
+
+If you are running Verdaccio in production, please use the latest supported stable version listed in [VERSIONS.md](https://github.com/verdaccio/verdaccio/blob/master/VERSIONS.md).
 
 ## Responsible disclosure security policy
 
 A responsible disclosure policy helps protect users of the project from publicly disclosed security vulnerabilities without a fix by employing a process where vulnerabilities are first triaged in a private manner, and only publicly disclosed after a reasonable time period that allows patching the vulnerability and provides an upgrade path for users.
 
-When contacting us directly via email, we will do our best efforts to respond in a reasonable time to resolve the issue. When contacting a security program their disclosure policy will provide details on timeframe, processes and paid bounties.
+We will do our best efforts to respond to a private report in a reasonable time and to resolve the issue. Public disclosure happens when the advisory is published, together with the fixed release.
 
 We kindly ask you to refrain from malicious acts that put our users, the project, or any of the project’s team members at risk.
 
 ## Reporting a security issue
 
+> Please do not open a public issue, pull request or discussion to report a security vulnerability.
+
 At Verdaccio, we consider the security of our systems a top priority. But no matter how much effort we put into system security, there can still be vulnerabilities present.
 
-If you discover a security vulnerability, please use one of the following means of communications to report it to us:
+All security vulnerabilities must be reported privately through **GitHub Security Advisories**:
 
-* Report the security issue to the Node.js Security WG through the [HackerOne program](https://hackerone.com/nodejs-ecosystem) for ecosystem modules on npm, or to [Snyk Security Team](https://snyk.io/vulnerability-disclosure). They will help triage the security issue and work with all involved parties to remediate and release a fix.
+- Open a report at [Report a vulnerability](https://github.com/verdaccio/verdaccio/security/advisories/new). GitHub keeps the report private between you and the maintainers until an advisory is published.
+- Include reproduction steps, the affected versions and any logs or stack traces inline as text. If the report targets a different repository of the [verdaccio organization](https://github.com/verdaccio), use that repository's **Security** tab instead.
+- Reports sent by email to verdaccio@pm.me are read, but they are not handled over email: the maintainers will redirect you to open the report on GitHub, and the triage and the fix happen in the advisory. If you must send details by email, encrypt them with our [PGP key](https://cdn.verdaccio.dev/gpg/publickey.verdaccio@pm.me.asc), which is also available in this document.
 
-Note that time-frame and processes are subject to each program’s own policy.
+### CVE identifiers
 
-* Report the security issue to the project maintainers directly at verdaccio@pm.me. If the report contains highly sensitive information, please be advised to encrypt your findings using our [PGP key](https://verdaccio.nyc3.digitaloceanspaces.com/gpg/publickey.verdaccio@pm.me.asc) which is also available in this document.
+CVEs for Verdaccio are requested through the GitHub Security Advisory (GHSA) once the advisory is ready to be published; GitHub is a CVE Numbering Authority and assigns the identifier. Whether a CVE is assigned, and which one, is decided by GitHub, not by the maintainers, so please do not ask us for a CVE for a report that has not gone through an advisory.
 
-Your efforts to responsibly disclose your findings are sincerely appreciated and will be taken into account to acknowledge your contributions.
+Your efforts to responsibly disclose your findings are sincerely appreciated. **There isn't a security bounty program available**, but any security contributions will be duly acknowledged in the published advisory.
 
 ## PGP key
 
-The following is this project’s PGP key which should be used to encrypt any sensitive information shared on unsecured medium such as e-mails:
+The following is this project’s PGP key, to be used to encrypt any sensitive information shared over an unsecured medium such as e-mail:
 
 ```
 -----BEGIN PGP PUBLIC KEY BLOCK-----

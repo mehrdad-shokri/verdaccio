@@ -1,0 +1,976 @@
+# @verdaccio/search
+
+## 9.0.0-next-9.44
+
+### Patch Changes
+
+- Updated dependencies [7f75311]
+  - @verdaccio/config@9.0.0-next-9.44
+  - @verdaccio/core@9.0.0-next-9.44
+  - @verdaccio/logger@9.0.0-next-9.44
+  - @verdaccio/proxy@9.0.0-next-9.44
+
+## 9.0.0-next-9.43
+
+### Patch Changes
+
+- Updated dependencies [aeaf4d8]
+- Updated dependencies [8c56d8e]
+  - @verdaccio/config@9.0.0-next-9.43
+  - @verdaccio/core@9.0.0-next-9.43
+  - @verdaccio/proxy@9.0.0-next-9.43
+  - @verdaccio/logger@9.0.0-next-9.43
+
+## 9.0.0-next-9.42
+
+### Patch Changes
+
+- Updated dependencies [1d1ba47]
+  - @verdaccio/core@9.0.0-next-9.42
+  - @verdaccio/config@9.0.0-next-9.42
+  - @verdaccio/logger@9.0.0-next-9.42
+  - @verdaccio/proxy@9.0.0-next-9.42
+
+## 9.0.0-next-9.41
+
+### Patch Changes
+
+- @verdaccio/config@9.0.0-next-9.41
+  - @verdaccio/core@9.0.0-next-9.41
+  - @verdaccio/proxy@9.0.0-next-9.41
+  - @verdaccio/logger@9.0.0-next-9.41
+
+## 9.0.0-next-9.40
+
+### Patch Changes
+
+- @verdaccio/config@9.0.0-next-9.40
+  - @verdaccio/core@9.0.0-next-9.40
+  - @verdaccio/proxy@9.0.0-next-9.40
+  - @verdaccio/logger@9.0.0-next-9.40
+
+## 9.0.0-next-9.39
+
+### Patch Changes
+
+- Updated dependencies [eb0cb3d]
+  - @verdaccio/config@9.0.0-next-9.39
+  - @verdaccio/core@9.0.0-next-9.39
+  - @verdaccio/logger@9.0.0-next-9.39
+  - @verdaccio/proxy@9.0.0-next-9.39
+
+## 9.0.0-next-9.38
+
+### Patch Changes
+
+- Updated dependencies [d8ff951]
+  - @verdaccio/config@9.0.0-next-9.38
+  - @verdaccio/proxy@9.0.0-next-9.38
+  - @verdaccio/core@9.0.0-next-9.38
+  - @verdaccio/logger@9.0.0-next-9.38
+
+## 9.0.0-next-9.37
+
+### Patch Changes
+
+- Updated dependencies [4a483d0]
+- Updated dependencies [c2eafec]
+- Updated dependencies [8a6e1a1]
+  - @verdaccio/core@9.0.0-next-9.37
+  - @verdaccio/config@9.0.0-next-9.37
+  - @verdaccio/logger@9.0.0-next-9.37
+  - @verdaccio/proxy@9.0.0-next-9.37
+
+## 9.0.0-next-9.36
+
+### Patch Changes
+
+- Updated dependencies [1cdb33c]
+- Updated dependencies [5009e4d]
+  - @verdaccio/proxy@9.0.0-next-9.36
+  - @verdaccio/config@9.0.0-next-9.36
+  - @verdaccio/core@9.0.0-next-9.36
+  - @verdaccio/logger@9.0.0-next-9.36
+
+## 9.0.0-next-9.35
+
+### Patch Changes
+
+- Updated dependencies [1693358]
+  - @verdaccio/core@9.0.0-next-9.35
+  - @verdaccio/config@9.0.0-next-9.35
+  - @verdaccio/logger@9.0.0-next-9.35
+  - @verdaccio/proxy@9.0.0-next-9.35
+
+## 9.0.0-next-9.34
+
+### Patch Changes
+
+- Updated dependencies [83eb46c]
+- Updated dependencies [0cac607]
+- Updated dependencies [b6cc475]
+  - @verdaccio/core@9.0.0-next-9.34
+  - @verdaccio/config@9.0.0-next-9.34
+  - @verdaccio/logger@9.0.0-next-9.34
+  - @verdaccio/proxy@9.0.0-next-9.34
+
+## 9.0.0-next-9.33
+
+### Patch Changes
+
+- Updated dependencies [950fd9f]
+- Updated dependencies [b2e2a5a]
+- Updated dependencies [73c78e3]
+  - @verdaccio/config@9.0.0-next-9.33
+  - @verdaccio/proxy@9.0.0-next-9.33
+  - @verdaccio/logger@9.0.0-next-9.33
+  - @verdaccio/core@9.0.0-next-9.33
+
+## 9.0.0-next-9.32
+
+### Patch Changes
+
+- 59f1350: Validate package versions before combining search results. Paginated searches return 503 for malformed uplink versions instead of returning invalid results or failing with 500. Invalid local and legacy search entries are omitted. Preserve support for legacy version formats and return their original spelling while comparing versions consistently. When a local package and an uplink report the same version in different spellings, the local entry and its metadata are kept; only a strictly newer version replaces it.
+- 73415bb: Fix Search v1 pagination by collecting bounded uplink pages from offset zero and applying the client offset once, after deduplication and access checks. Keep result ordering stable across uplink rounds, fetch additional candidates when needed, and cancel work on disconnect or after 30 seconds. Skip uplinks that fail before contributing any results so local and healthy-uplink searches remain available. Return 503 when an uplink fails after contributing a page, stops advancing, or the shared budget of 100 requests / 25,000 candidates is exhausted instead of returning an incomplete successful page.
+- Updated dependencies [107c4d3]
+- Updated dependencies [34cd0fb]
+- Updated dependencies [59f1350]
+- Updated dependencies [f3f8976]
+- Updated dependencies [89a7362]
+- Updated dependencies [297c20e]
+- Updated dependencies [3618123]
+- Updated dependencies [cbfcfd2]
+- Updated dependencies [a4e2da0]
+- Updated dependencies [73415bb]
+- Updated dependencies [107c4d3]
+  - @verdaccio/logger@9.0.0-next-9.32
+  - @verdaccio/config@9.0.0-next-9.32
+  - @verdaccio/core@9.0.0-next-9.32
+  - @verdaccio/proxy@9.0.0-next-9.32
+
+## 9.0.0-next-9.31
+
+### Patch Changes
+
+- Updated dependencies [c2b5897]
+- Updated dependencies [68ab0d4]
+- Updated dependencies [c52b632]
+- Updated dependencies [7054084]
+- Updated dependencies [cf15239]
+  - @verdaccio/core@9.0.0-next-9.31
+  - @verdaccio/proxy@9.0.0-next-9.31
+  - @verdaccio/config@9.0.0-next-9.31
+  - @verdaccio/logger@9.0.0-next-9.31
+
+## 9.0.0-next-9.30
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.30
+- @verdaccio/config@9.0.0-next-9.30
+- @verdaccio/logger@9.0.0-next-9.30
+- @verdaccio/proxy@9.0.0-next-9.30
+
+## 9.0.0-next-9.29
+
+### Patch Changes
+
+- Updated dependencies [30601b3]
+- Updated dependencies [30601b3]
+  - @verdaccio/core@9.0.0-next-9.29
+  - @verdaccio/config@9.0.0-next-9.29
+  - @verdaccio/logger@9.0.0-next-9.29
+  - @verdaccio/proxy@9.0.0-next-9.29
+
+## 9.0.0-next-9.28
+
+### Patch Changes
+
+- Updated dependencies [dd4f91c]
+  - @verdaccio/core@9.0.0-next-9.28
+  - @verdaccio/config@9.0.0-next-9.28
+  - @verdaccio/logger@9.0.0-next-9.28
+  - @verdaccio/proxy@9.0.0-next-9.28
+
+## 9.0.0-next-9.27
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.27
+- @verdaccio/config@9.0.0-next-9.27
+- @verdaccio/logger@9.0.0-next-9.27
+- @verdaccio/proxy@9.0.0-next-9.27
+
+## 9.0.0-next-9.26
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.26
+- @verdaccio/config@9.0.0-next-9.26
+- @verdaccio/logger@9.0.0-next-9.26
+- @verdaccio/proxy@9.0.0-next-9.26
+
+## 9.0.0-next-9.25
+
+### Patch Changes
+
+- Updated dependencies [4861978]
+- Updated dependencies [d7937a3]
+  - @verdaccio/config@9.0.0-next-9.25
+  - @verdaccio/proxy@9.0.0-next-9.25
+  - @verdaccio/core@9.0.0-next-9.25
+  - @verdaccio/logger@9.0.0-next-9.25
+
+## 9.0.0-next-9.24
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.24
+- @verdaccio/config@9.0.0-next-9.24
+- @verdaccio/logger@9.0.0-next-9.24
+- @verdaccio/proxy@9.0.0-next-9.24
+
+## 9.0.0-next-9.23
+
+### Patch Changes
+
+- Updated dependencies [5ec045c]
+  - @verdaccio/core@9.0.0-next-9.23
+  - @verdaccio/config@9.0.0-next-9.23
+  - @verdaccio/logger@9.0.0-next-9.23
+  - @verdaccio/proxy@9.0.0-next-9.23
+
+## 9.0.0-next-9.22
+
+### Patch Changes
+
+- Updated dependencies [6795216]
+- Updated dependencies [d3b0352]
+- Updated dependencies [3574350]
+- Updated dependencies [c499c4e]
+  - @verdaccio/config@9.0.0-next-9.22
+  - @verdaccio/logger@9.0.0-next-9.22
+  - @verdaccio/proxy@9.0.0-next-9.22
+  - @verdaccio/core@9.0.0-next-9.22
+
+## 9.0.0-next-9.21
+
+### Patch Changes
+
+- Updated dependencies [5aa8cca]
+  - @verdaccio/core@9.0.0-next-9.21
+  - @verdaccio/config@9.0.0-next-9.21
+  - @verdaccio/logger@9.0.0-next-9.21
+  - @verdaccio/proxy@9.0.0-next-9.21
+
+## 9.0.0-next-9.20
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.20
+- @verdaccio/logger@9.0.0-next-9.20
+- @verdaccio/proxy@9.0.0-next-9.20
+- @verdaccio/config@9.0.0-next-9.20
+
+## 9.0.0-next-9.19
+
+### Patch Changes
+
+- 47f122f: chore(deps): clean-up unused and duplicates
+- Updated dependencies [47f122f]
+  - @verdaccio/core@9.0.0-next-9.19
+  - @verdaccio/config@9.0.0-next-9.19
+  - @verdaccio/logger@9.0.0-next-9.19
+  - @verdaccio/proxy@9.0.0-next-9.19
+
+## 9.0.0-next-9.18
+
+### Patch Changes
+
+- Updated dependencies [16f7b18]
+- Updated dependencies [62ebd31]
+- Updated dependencies [e8421bd]
+- Updated dependencies [d9203d0]
+- Updated dependencies [73c78e3]
+  - @verdaccio/proxy@9.0.0-next-9.18
+  - @verdaccio/core@9.0.0-next-9.18
+  - @verdaccio/logger@9.0.0-next-9.18
+  - @verdaccio/config@9.0.0-next-9.18
+
+## 9.0.0-next-9.17
+
+### Patch Changes
+
+- 6408a85: chore: force release
+- Updated dependencies [6408a85]
+  - @verdaccio/config@9.0.0-next-9.17
+  - @verdaccio/core@9.0.0-next-9.17
+  - @verdaccio/logger@9.0.0-next-9.17
+  - @verdaccio/proxy@9.0.0-next-9.17
+
+## 9.0.0-next-9.16
+
+### Patch Changes
+
+- cdf3150: fix: refactor unit test
+- Updated dependencies [66f7e61]
+- Updated dependencies [cdf3150]
+  - @verdaccio/core@9.0.0-next-9.16
+  - @verdaccio/config@9.0.0-next-9.16
+  - @verdaccio/logger@9.0.0-next-9.16
+  - @verdaccio/proxy@9.0.0-next-9.16
+
+## 9.0.0-next-9.15
+
+### Patch Changes
+
+- Updated dependencies [75caa33]
+- Updated dependencies [3299cc7]
+- Updated dependencies [6338cb6]
+- Updated dependencies [ea8beb2]
+  - @verdaccio/config@9.0.0-next-9.15
+  - @verdaccio/proxy@9.0.0-next-9.15
+  - @verdaccio/core@9.0.0-next-9.15
+  - @verdaccio/logger@9.0.0-next-9.15
+
+## 9.0.0-next-9.14
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.14
+- @verdaccio/config@9.0.0-next-9.14
+- @verdaccio/logger@9.0.0-next-9.14
+- @verdaccio/proxy@9.0.0-next-9.14
+
+## 9.0.0-next-9.13
+
+### Patch Changes
+
+- Updated dependencies [39c369e]
+  - @verdaccio/core@9.0.0-next-9.13
+  - @verdaccio/config@9.0.0-next-9.13
+  - @verdaccio/logger@9.0.0-next-9.13
+  - @verdaccio/proxy@9.0.0-next-9.13
+
+## 9.0.0-next-9.12
+
+### Patch Changes
+
+- Updated dependencies [64c904a]
+  - @verdaccio/config@9.0.0-next-9.12
+  - @verdaccio/proxy@9.0.0-next-9.12
+  - @verdaccio/core@9.0.0-next-9.12
+  - @verdaccio/logger@9.0.0-next-9.12
+
+## 9.0.0-next-9.11
+
+### Patch Changes
+
+- Updated dependencies [96cb0c4]
+  - @verdaccio/config@9.0.0-next-9.11
+  - @verdaccio/proxy@9.0.0-next-9.11
+  - @verdaccio/core@9.0.0-next-9.11
+  - @verdaccio/logger@9.0.0-next-9.11
+
+## 9.0.0-next-9.10
+
+### Patch Changes
+
+- Updated dependencies [747d6ab]
+  - @verdaccio/config@9.0.0-next-9.10
+  - @verdaccio/proxy@9.0.0-next-9.10
+  - @verdaccio/core@9.0.0-next-9.10
+  - @verdaccio/logger@9.0.0-next-9.10
+
+## 9.0.0-next-9.9
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.9
+- @verdaccio/config@9.0.0-next-9.9
+- @verdaccio/logger@9.0.0-next-9.9
+- @verdaccio/proxy@9.0.0-next-9.9
+
+## 9.0.0-next-9.8
+
+### Patch Changes
+
+- d68a86d: refactor: migrate from lodash to lodash-es and replace simple utilities with native JS
+- Updated dependencies [d68a86d]
+  - @verdaccio/config@9.0.0-next-9.8
+  - @verdaccio/proxy@9.0.0-next-9.8
+  - @verdaccio/core@9.0.0-next-9.8
+  - @verdaccio/logger@9.0.0-next-9.8
+
+## 9.0.0-next-9.7
+
+### Patch Changes
+
+- Updated dependencies [f2e488d]
+- Updated dependencies [d0405c9]
+  - @verdaccio/config@9.0.0-next-9.7
+  - @verdaccio/proxy@9.0.0-next-9.7
+  - @verdaccio/core@9.0.0-next-9.7
+  - @verdaccio/logger@9.0.0-next-9.7
+
+## 9.0.0-next-9.6
+
+### Patch Changes
+
+- Updated dependencies [1905990]
+  - @verdaccio/core@9.0.0-next-9.6
+  - @verdaccio/config@9.0.0-next-9.6
+  - @verdaccio/logger@9.0.0-next-9.6
+  - @verdaccio/proxy@9.0.0-next-9.6
+
+## 9.0.0-next-9.5
+
+### Patch Changes
+
+- fd09d4f: chore: update vitest to 4.1.0 and @vitest/coverage-v8 to 4.1.0
+- Updated dependencies [4eda7ac]
+- Updated dependencies [8f9bcc8]
+- Updated dependencies [a9d7b4a]
+- Updated dependencies [1d5462f]
+- Updated dependencies [fd09d4f]
+  - @verdaccio/logger@9.0.0-next-9.5
+  - @verdaccio/core@9.0.0-next-9.5
+  - @verdaccio/config@9.0.0-next-9.5
+  - @verdaccio/proxy@9.0.0-next-9.5
+
+## 9.0.0-next-9.4
+
+### Major Changes
+
+- 52a6520: Replace Babel and esbuild build pipeline with Vite 8 across all packages. All packages now output dual ESM (.mjs) and CJS (.js) formats with TypeScript declarations generated via vite-plugin-dts. Includes shared build config at vite.lib.config.mjs, proper exports field in all package.json files, and fixes for type-only re-exports required by Rollup's stricter module analysis.
+
+### Patch Changes
+
+- Updated dependencies [52a6520]
+  - @verdaccio/config@9.0.0-next-9.4
+  - @verdaccio/core@9.0.0-next-9.4
+  - @verdaccio/logger@9.0.0-next-9.4
+  - @verdaccio/proxy@9.0.0-next-9.4
+
+## 9.0.0-next-9.3
+
+### Patch Changes
+
+- Updated dependencies [66e7538]
+  - @verdaccio/proxy@9.0.0-next-9.3
+  - @verdaccio/config@9.0.0-next-9.3
+  - @verdaccio/core@9.0.0-next-9.3
+  - @verdaccio/logger@9.0.0-next-9.3
+
+## 9.0.0-next-9.2
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.2
+- @verdaccio/config@9.0.0-next-9.2
+- @verdaccio/proxy@9.0.0-next-9.2
+- @verdaccio/logger@9.0.0-next-9.2
+
+## 9.0.0-next-9.1
+
+### Patch Changes
+
+- Updated dependencies [dd9bad3]
+  - @verdaccio/core@9.0.0-next-9.1
+  - @verdaccio/config@9.0.0-next-9.1
+  - @verdaccio/proxy@9.0.0-next-9.1
+  - @verdaccio/logger@9.0.0-next-9.1
+
+## 9.0.0-next-9.0
+
+### Major Changes
+
+- 7f80af5: chore: bump package
+
+### Patch Changes
+
+- Updated dependencies [7f80af5]
+- Updated dependencies [34da6e6]
+  - @verdaccio/config@9.0.0-next-9.0
+  - @verdaccio/core@9.0.0-next-9.0
+  - @verdaccio/logger@9.0.0-next-9.0
+  - @verdaccio/proxy@9.0.0-next-9.0
+
+## 8.0.0-next-8.31
+
+### Patch Changes
+
+- Updated dependencies [b5eccfc]
+  - @verdaccio/config@8.0.0-next-8.31
+  - @verdaccio/core@8.0.0-next-8.31
+  - @verdaccio/logger@8.0.0-next-8.31
+  - @verdaccio/proxy@8.0.0-next-8.31
+
+## 8.0.0-next-8.30
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.30
+- @verdaccio/config@8.0.0-next-8.30
+- @verdaccio/proxy@8.0.0-next-8.30
+- @verdaccio/logger@8.0.0-next-8.30
+
+## 8.0.0-next-8.29
+
+### Patch Changes
+
+- Updated dependencies [4edcae8]
+- Updated dependencies [184632c]
+  - @verdaccio/core@8.0.0-next-8.29
+  - @verdaccio/config@8.0.0-next-8.29
+  - @verdaccio/proxy@8.0.0-next-8.29
+  - @verdaccio/logger@8.0.0-next-8.29
+
+## 8.0.0-next-8.28
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.28
+- @verdaccio/config@8.0.0-next-8.28
+- @verdaccio/proxy@8.0.0-next-8.28
+- @verdaccio/logger@8.0.0-next-8.28
+
+## 8.0.0-next-8.27
+
+### Patch Changes
+
+- @verdaccio/config@8.0.0-next-8.27
+- @verdaccio/core@8.0.0-next-8.27
+- @verdaccio/logger@8.0.0-next-8.27
+- @verdaccio/proxy@8.0.0-next-8.27
+
+## 8.0.0-next-8.26
+
+### Patch Changes
+
+- @verdaccio/config@8.0.0-next-8.26
+- @verdaccio/core@8.0.0-next-8.26
+- @verdaccio/logger@8.0.0-next-8.26
+- @verdaccio/proxy@8.0.0-next-8.26
+
+## 8.0.0-next-8.25
+
+### Patch Changes
+
+- Updated dependencies [3aff890]
+- Updated dependencies [265c94a]
+- Updated dependencies [b24f513]
+  - @verdaccio/config@8.0.0-next-8.25
+  - @verdaccio/proxy@8.0.0-next-8.25
+  - @verdaccio/core@8.0.0-next-8.25
+  - @verdaccio/logger@8.0.0-next-8.25
+
+## 8.0.0-next-8.24
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.24
+- @verdaccio/config@8.0.0-next-8.24
+- @verdaccio/proxy@8.0.0-next-8.24
+- @verdaccio/logger@8.0.0-next-8.24
+
+## 8.0.0-next-8.23
+
+### Patch Changes
+
+- Updated dependencies [b671a38]
+  - @verdaccio/config@8.0.0-next-8.23
+  - @verdaccio/proxy@8.0.0-next-8.23
+  - @verdaccio/core@8.0.0-next-8.23
+  - @verdaccio/logger@8.0.0-next-8.23
+
+## 8.0.0-next-8.22
+
+### Patch Changes
+
+- Updated dependencies [67e667b]
+- Updated dependencies [60ef8ff]
+- Updated dependencies [05f03b3]
+- Updated dependencies [f443f81]
+  - @verdaccio/core@8.0.0-next-8.22
+  - @verdaccio/config@8.0.0-next-8.22
+  - @verdaccio/proxy@8.0.0-next-8.22
+  - @verdaccio/logger@8.0.0-next-8.22
+
+## 8.0.0-next-8.21
+
+### Patch Changes
+
+- Updated dependencies [f8a321f]
+  - @verdaccio/core@8.0.0-next-8.21
+  - @verdaccio/config@8.0.0-next-8.21
+  - @verdaccio/proxy@8.0.0-next-8.21
+  - @verdaccio/logger@8.0.0-next-8.21
+
+## 8.0.0-next-8.20
+
+### Patch Changes
+
+- Updated dependencies [08e1b21]
+- Updated dependencies [a1a73e9]
+- Updated dependencies [6a4d6dd]
+- Updated dependencies [d92ba65]
+  - @verdaccio/config@8.0.0-next-8.20
+  - @verdaccio/proxy@8.0.0-next-8.20
+  - @verdaccio/core@8.0.0-next-8.20
+  - @verdaccio/logger@8.0.0-next-8.20
+
+## 8.0.0-next-8.19
+
+### Patch Changes
+
+- 54b1906: chore(deps): node-api, proxy, search
+- Updated dependencies [9350431]
+- Updated dependencies [54b1906]
+  - @verdaccio/core@8.0.0-next-8.19
+  - @verdaccio/proxy@8.0.0-next-8.19
+  - @verdaccio/config@8.0.0-next-8.19
+  - @verdaccio/logger@8.0.0-next-8.19
+
+## 8.0.0-next-8.18
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.18
+- @verdaccio/config@8.0.0-next-8.18
+- @verdaccio/proxy@8.0.0-next-8.18
+- @verdaccio/logger@8.0.0-next-8.18
+
+## 8.0.0-next-8.17
+
+### Patch Changes
+
+- Updated dependencies [96d2f0f]
+  - @verdaccio/core@8.0.0-next-8.17
+  - @verdaccio/config@8.0.0-next-8.17
+  - @verdaccio/proxy@8.0.0-next-8.17
+  - @verdaccio/logger@8.0.0-next-8.17
+
+## 8.0.0-next-8.16
+
+### Patch Changes
+
+- Updated dependencies [72c3cbb]
+- Updated dependencies [9509b63]
+- Updated dependencies [626ae6a]
+- Updated dependencies [2fef671]
+- Updated dependencies [acb8a99]
+- Updated dependencies [b19ddca]
+  - @verdaccio/config@8.0.0-next-8.16
+  - @verdaccio/proxy@8.0.0-next-8.16
+  - @verdaccio/core@8.0.0-next-8.16
+  - @verdaccio/logger@8.0.0-next-8.16
+
+## 8.0.0-next-8.15
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.15
+- @verdaccio/config@8.0.0-next-8.15
+- @verdaccio/proxy@8.0.0-next-8.15
+- @verdaccio/logger@8.0.0-next-8.15
+
+## 8.0.0-next-8.14
+
+### Patch Changes
+
+- Updated dependencies [b9fea38]
+- Updated dependencies [bb478f2]
+  - @verdaccio/core@8.0.0-next-8.14
+  - @verdaccio/config@8.0.0-next-8.14
+  - @verdaccio/proxy@8.0.0-next-8.14
+  - @verdaccio/logger@8.0.0-next-8.14
+
+## 8.0.0-next-8.13
+
+### Patch Changes
+
+- b3fa5df: fix: uplink processing order
+- e4a1539: chore: package.json maintenance
+- Updated dependencies [b3fa5df]
+- Updated dependencies [2eb8cc2]
+- Updated dependencies [e4a1539]
+- Updated dependencies [0607e80]
+  - @verdaccio/config@8.0.0-next-8.13
+  - @verdaccio/proxy@8.0.0-next-8.13
+  - @verdaccio/core@8.0.0-next-8.13
+  - @verdaccio/logger@8.0.0-next-8.13
+
+## 8.0.0-next-8.12
+
+### Patch Changes
+
+- Updated dependencies [95ac124]
+  - @verdaccio/core@8.0.0-next-8.12
+  - @verdaccio/config@8.0.0-next-8.12
+  - @verdaccio/proxy@8.0.0-next-8.12
+  - @verdaccio/logger@8.0.0-next-8.12
+
+## 8.0.0-next-8.11
+
+### Patch Changes
+
+- Updated dependencies [13e0fde]
+  - @verdaccio/proxy@8.0.0-next-8.11
+  - @verdaccio/config@8.0.0-next-8.11
+  - @verdaccio/core@8.0.0-next-8.11
+  - @verdaccio/logger@8.0.0-next-8.11
+
+## 8.0.0-next-8.10
+
+### Patch Changes
+
+- Updated dependencies [bf0e09a]
+  - @verdaccio/config@8.0.0-next-8.10
+  - @verdaccio/proxy@8.0.0-next-8.10
+  - @verdaccio/core@8.0.0-next-8.10
+  - @verdaccio/logger@8.0.0-next-8.10
+
+## 8.0.0-next-8.9
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.9
+- @verdaccio/config@8.0.0-next-8.9
+- @verdaccio/proxy@8.0.0-next-8.9
+- @verdaccio/logger@8.0.0-next-8.9
+
+## 8.0.0-next-8.8
+
+### Patch Changes
+
+- Updated dependencies [0588605]
+- Updated dependencies [ca91b9a]
+  - @verdaccio/config@8.0.0-next-8.8
+  - @verdaccio/proxy@8.0.0-next-8.8
+  - @verdaccio/core@8.0.0-next-8.8
+  - @verdaccio/logger@8.0.0-next-8.8
+
+## 8.0.0-next-8.7
+
+### Patch Changes
+
+- Updated dependencies [589ea7f]
+  - @verdaccio/core@8.0.0-next-8.7
+  - @verdaccio/config@8.0.0-next-8.7
+  - @verdaccio/proxy@8.0.0-next-8.7
+  - @verdaccio/logger@8.0.0-next-8.7
+
+## 8.0.0-next-8.6
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.6
+- @verdaccio/config@8.0.0-next-8.6
+- @verdaccio/proxy@8.0.0-next-8.6
+- @verdaccio/logger@8.0.0-next-8.6
+
+## 8.0.0-next-8.5
+
+### Patch Changes
+
+- Updated dependencies [e308fbb]
+- Updated dependencies [ba71932]
+- Updated dependencies [64a7fc0]
+- Updated dependencies [4adaa83]
+- Updated dependencies [5cbee6f]
+- Updated dependencies [a049bba]
+  - @verdaccio/proxy@8.0.0-next-8.5
+  - @verdaccio/config@8.0.0-next-8.5
+  - @verdaccio/core@8.0.0-next-8.5
+  - @verdaccio/logger@8.0.0-next-8.5
+
+## 8.0.0-next-8.4
+
+### Patch Changes
+
+- Updated dependencies [48aa89f]
+- Updated dependencies [58e0d95]
+  - @verdaccio/core@8.0.0-next-8.4
+  - @verdaccio/proxy@8.0.0-next-8.4
+  - @verdaccio/config@8.0.0-next-8.4
+  - @verdaccio/logger@8.0.0-next-8.4
+
+## 8.0.0-next-8.3
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.3
+- @verdaccio/config@8.0.0-next-8.3
+- @verdaccio/proxy@8.0.0-next-8.3
+- @verdaccio/logger@8.0.0-next-8.3
+
+## 8.0.0-next-8.2
+
+### Minor Changes
+
+- 6a8154c: feat: update logger pino to latest
+
+### Patch Changes
+
+- Updated dependencies [6a8154c]
+  - @verdaccio/config@8.0.0-next-8.2
+  - @verdaccio/core@8.0.0-next-8.2
+  - @verdaccio/logger@8.0.0-next-8.2
+  - @verdaccio/proxy@8.0.0-next-8.2
+
+## 8.0.0-next-8.1
+
+### Patch Changes
+
+- @verdaccio/core@8.0.0-next-8.1
+- @verdaccio/config@8.0.0-next-8.1
+- @verdaccio/proxy@8.0.0-next-8.1
+- @verdaccio/logger@8.0.0-next-8.1
+
+## 8.0.0-next-8.0
+
+### Major Changes
+
+- chore: move v7 next to v8 next
+
+### Patch Changes
+
+- Updated dependencies
+  - @verdaccio/logger@8.0.0-next-8.0
+  - @verdaccio/core@8.0.0-next-8.0
+  - @verdaccio/config@8.0.0-next-8.0
+  - @verdaccio/proxy@8.0.0-next-8.0
+
+## 7.0.0
+
+### Major Changes
+
+- 47f61c6: feat!: bump to v7
+- e7ebccb: update major dependencies, remove old nodejs support
+
+### Minor Changes
+
+- daceb6d: restore legacy support
+
+### Patch Changes
+
+- cce258e: refactor: search package
+- 35cc57b: fix: keyword undefined errors
+- Updated dependencies [47f61c6]
+- Updated dependencies [10dd81f]
+- Updated dependencies [6e764e3]
+- Updated dependencies [8c10a3e]
+- Updated dependencies [daceb6d]
+- Updated dependencies [e7ebccb]
+- Updated dependencies [c9962fe]
+- Updated dependencies [f047cc8]
+- Updated dependencies [a99a4bb]
+- Updated dependencies [a05a7d8]
+- Updated dependencies [7c9f3cf]
+- Updated dependencies [c31aec8]
+- Updated dependencies [bd8703e]
+- Updated dependencies [4d96324]
+  - @verdaccio/config@7.0.0
+  - @verdaccio/core@7.0.0
+  - @verdaccio/logger@7.0.0
+  - @verdaccio/proxy@7.0.0
+
+## 7.0.0-next-8.10
+
+### Patch Changes
+
+- Updated dependencies [8c10a3e]
+- Updated dependencies [a05a7d8]
+- Updated dependencies [7c9f3cf]
+  - @verdaccio/config@7.0.0-next-8.21
+  - @verdaccio/core@7.0.0-next-8.21
+  - @verdaccio/proxy@7.0.0-next-8.21
+  - @verdaccio/logger@7.0.0-next-8.21
+
+## 7.0.0-next-7.9
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next-7.20
+- @verdaccio/config@7.0.0-next-7.20
+- @verdaccio/proxy@7.0.0-next-7.20
+- @verdaccio/logger@7.0.0-next-7.20
+
+## 7.0.0-next-7.8
+
+### Patch Changes
+
+- Updated dependencies [c31aec8]
+  - @verdaccio/config@7.0.0-next-7.19
+  - @verdaccio/proxy@7.0.0-next-7.19
+  - @verdaccio/core@7.0.0-next-7.19
+  - @verdaccio/logger@7.0.0-next-7.19
+
+## 7.0.0-next-7.7
+
+### Patch Changes
+
+- Updated dependencies [10dd81f]
+  - @verdaccio/config@7.0.0-next-7.18
+  - @verdaccio/core@7.0.0-next-7.18
+  - @verdaccio/logger@7.0.0-next-7.18
+  - @verdaccio/proxy@7.0.0-next-7.18
+
+## 7.0.0-next-7.6
+
+### Patch Changes
+
+- Updated dependencies [6e764e3]
+  - @verdaccio/config@7.0.0-next-7.17
+  - @verdaccio/core@7.0.0-next-7.17
+  - @verdaccio/logger@7.0.0-next-7.17
+  - @verdaccio/proxy@7.0.0-next-7.17
+
+## 7.0.0-next-7.5
+
+### Patch Changes
+
+- @verdaccio/logger@7.0.0-next-7.16
+- @verdaccio/proxy@7.0.0-next-7.16
+- @verdaccio/core@7.0.0-next-7.16
+- @verdaccio/config@7.0.0-next-7.16
+
+## 7.0.0-next-7.4
+
+### Patch Changes
+
+- Updated dependencies [bd8703e]
+  - @verdaccio/core@7.0.0-next-7.15
+  - @verdaccio/config@7.0.0-next-7.15
+  - @verdaccio/logger@7.0.0-next-7.15
+  - @verdaccio/proxy@7.0.0-next-7.15
+
+## 7.0.0-next-7.3
+
+### Patch Changes
+
+- @verdaccio/core@7.0.0-next-7.14
+- @verdaccio/config@7.0.0-next-7.14
+- @verdaccio/proxy@7.0.0-next-7.14
+- @verdaccio/logger@7.0.0-next-7.14
+
+## 7.0.0-next-7.2
+
+### Patch Changes
+
+- Updated dependencies [a99a4bb]
+  - @verdaccio/config@7.0.0-next-7.13
+  - @verdaccio/proxy@7.0.0-next-7.13
+  - @verdaccio/logger@7.0.0-next-7.13
+  - @verdaccio/core@7.0.0-next-7.13
+
+## 7.0.0-next-7.1
+
+### Patch Changes
+
+- cce258e: refactor: search package
+  - @verdaccio/core@7.0.0-next-7.12
+  - @verdaccio/config@7.0.0-next-7.12
+  - @verdaccio/proxy@7.0.0-next-7.12
+  - @verdaccio/logger@7.0.0-next-7.12

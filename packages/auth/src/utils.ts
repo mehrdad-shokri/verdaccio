@@ -1,0 +1,285 @@
+import buildDebug from 'debug';
+import type { Request } from 'express';
+import { isNil } from 'lodash-es';
+
+import { createAnonymousRemoteUser } from '@verdaccio/config';
+import type { pluginUtils } from '@verdaccio/core';
+import { API_ERROR, HTTP_STATUS, TOKEN_BASIC, TOKEN_BEARER, errorUtils } from '@verdaccio/core';
+import { aesDecrypt, parseBasicPayload, verifyPayload } from '@verdaccio/signature';
+import type { AuthPackageAllow, Config, Logger, RemoteUser, Security } from '@verdaccio/types';
+
+import type {
+  ActionsAllowed,
+  AllowAction,
+  AllowActionCallback,
+  AuthMiddlewarePayload,
+  AuthTokenHeader,
+  TokenEncryption,
+} from './types';
+
+const debug = buildDebug('verdaccio:auth:utils');
+
+export const SHA256_ALGORITHM = 'sha256';
+
+/**
+ * Split authentication header eg: Bearer [secret_token]
+ * @param authorizationHeader auth token
+ */
+export function parseAuthTokenHeader(authorizationHeader: string): AuthTokenHeader {
+  const parts = authorizationHeader.split(' ');
+  const [scheme, token] = parts;
+
+  return { scheme, token };
+}
+
+export function parseAESCredentials(authorizationHeader: string, secret: string) {
+  debug('parseAESCredentials init');
+  const { scheme, token } = parseAuthTokenHeader(authorizationHeader);
+
+  if (scheme.toUpperCase() === TOKEN_BEARER.toUpperCase()) {
+    debug('legacy header bearer');
+    return aesDecrypt(token.toString(), secret);
+  }
+}
+
+export function getMiddlewareCredentials(
+  security: Security,
+  secretKey: string,
+  authorizationHeader: string
+): AuthMiddlewarePayload {
+  debug('getMiddlewareCredentials init');
+  // comment out for debugging purposes
+  if (isAESLegacy(security)) {
+    debug('is legacy');
+    const credentials = parseAESCredentials(authorizationHeader, secretKey);
+    if (!credentials) {
+      debug('parse legacy credentials failed');
+      return;
+    }
+
+    const parsedCredentials = parseBasicPayload(credentials);
+    if (!parsedCredentials) {
+      debug('parse legacy basic payload credentials failed');
+      return;
+    }
+
+    return parsedCredentials;
+  }
+  const { scheme, token } = parseAuthTokenHeader(authorizationHeader);
+
+  debug('is jwt');
+  if (typeof token === 'string' && scheme.toUpperCase() === TOKEN_BEARER.toUpperCase()) {
+    return verifyJWTPayload(token, secretKey, security);
+  }
+}
+
+export function isAESLegacy(security: Security): boolean {
+  const { legacy, jwt } = security.api;
+
+  return isNil(legacy) === false && isNil(jwt) && legacy === true;
+}
+
+export async function getApiToken(
+  auth: TokenEncryption,
+  config: Config,
+  remoteUser: RemoteUser,
+  aesPassword: string,
+  options: { tokenKey?: string } = {}
+): Promise<string | void> {
+  debug('get api token');
+  const { security } = config;
+  const tokenUser: RemoteUser = options.tokenKey
+    ? { ...remoteUser, token: { key: options.tokenKey } }
+    : remoteUser;
+
+  if (isAESLegacy(security)) {
+    debug('security legacy enabled');
+    // fallback all goes to AES encryption
+    return await new Promise((resolve): void => {
+      resolve(auth.aesEncrypt(buildUser(remoteUser.name as string, aesPassword, options.tokenKey)));
+    });
+  }
+  const { jwt } = security.api;
+
+  if (jwt?.sign) {
+    return await auth.jwtEncrypt(tokenUser, jwt.sign);
+  }
+  return await new Promise((resolve): void => {
+    resolve(auth.aesEncrypt(buildUser(remoteUser.name as string, aesPassword, options.tokenKey)));
+  });
+}
+
+export const expireReasons: string[] = ['JsonWebTokenError', 'TokenExpiredError'];
+
+export function verifyJWTPayload(token: string, secret: string, security: Security): RemoteUser {
+  try {
+    const payload: RemoteUser = verifyPayload(
+      token,
+      secret,
+      security?.api?.jwt?.verify as Parameters<typeof verifyPayload>[2]
+    );
+
+    return payload;
+  } catch (error: any) {
+    // #168 this check should be removed as soon AES encrypt is removed.
+    if (expireReasons.includes(error.name)) {
+      // it might be possible the jwt configuration is enabled and
+      // old tokens fails still remains in usage, thus
+      // we return an anonymous user to force log in.
+      return createAnonymousRemoteUser();
+    }
+    throw errorUtils.getCode(HTTP_STATUS.UNAUTHORIZED, error.message);
+  }
+}
+
+export function isAuthHeaderValid(authorization: string): boolean {
+  return authorization.split(' ').length === 2;
+}
+
+const LOGIN_PATH = /\/-\/user\/org\.couchdb\.user:[^/]+(\/-rev\/[^/]+)?\/?$/;
+
+/** Clients retry the login of an existing user with Basic on `GET`/`PUT /-/user/...`, the only routes accepting it. */
+export function isBasicLoginRequest(
+  req: Pick<Request, 'method' | 'url' | 'headers'>,
+  security?: Security
+): boolean {
+  if (security?.api?.basicLogin === false || (req.method !== 'PUT' && req.method !== 'GET')) {
+    return false;
+  }
+  const authorization = req.headers?.authorization;
+  if (typeof authorization !== 'string') {
+    return false;
+  }
+  const path = (req.url ?? '').split('?')[0];
+  return (
+    LOGIN_PATH.test(path) &&
+    parseAuthTokenHeader(authorization).scheme.toUpperCase() === TOKEN_BASIC.toUpperCase()
+  );
+}
+
+export function parseBasicLoginCredentials(
+  authorization: string
+): { user: string; password: string } | undefined {
+  const { token } = parseAuthTokenHeader(authorization);
+  const decoded = Buffer.from(token ?? '', 'base64').toString();
+  const separator = decoded.indexOf(':');
+  if (separator <= 0) {
+    return undefined;
+  }
+  return { user: decoded.slice(0, separator), password: decoded.slice(separator + 1) };
+}
+
+/**
+ * Return a default configuration for authentication if none is provided.
+ * @param logger {Logger}
+ * @returns object of default implementations.
+ */
+export function getDefaultPluginMethods(logger: Logger): pluginUtils.Auth<Config> {
+  return {
+    authenticate(_user: string, _password: string, cb: pluginUtils.AuthCallback): void {
+      debug('triggered default authenticate method');
+      cb(errorUtils.getForbidden(API_ERROR.BAD_USERNAME_PASSWORD));
+    },
+
+    adduser(_user: string, _password: string, cb: pluginUtils.AuthUserCallback): void {
+      debug('triggered default adduser method');
+      // since adduser is not implemented but optional, continue without error
+      // this assumes that the user is added by an external system
+      cb(null, true);
+    },
+
+    // @ts-ignore
+    allow_access: allow_action('access', logger),
+    // @ts-ignore
+    allow_publish: allow_action('publish', logger),
+    allow_unpublish: handleActionWithPublishFallback('unpublish', logger),
+    allow_stage: handleActionWithPublishFallback('stage', logger),
+  };
+}
+
+export function allow_action(action: ActionsAllowed, logger: Logger): AllowAction {
+  return function allowActionCallback(
+    user: RemoteUser,
+    pkg: AuthPackageAllow,
+    callback: AllowActionCallback
+  ): void {
+    logger.trace({ remote: user.name }, `[auth/allow_action]: user: @{remote}`);
+    const { name, groups } = user;
+    debug('allow_action "%s": groups %s', action, groups);
+    const groupAccess = pkg[action] as string[];
+    debug('allow_action "%s": groupAccess %s', action, groupAccess);
+    const hasPermission = groupAccess.some((group) => {
+      return name === group || groups.includes(group);
+    });
+    debug('package "%s" has permission "%s"', name, hasPermission);
+    logger.trace(
+      { pkgName: pkg.name, hasPermission, remote: user.name, groupAccess },
+      `[auth/allow_action]: hasPermission? @{hasPermission} for user: @{remote}, package: @{pkgName}`
+    );
+
+    if (hasPermission) {
+      logger.trace({ remote: user.name }, `auth/allow_action: access granted to: @{remote}`);
+      return callback(null, true);
+    }
+
+    if (name) {
+      callback(
+        errorUtils.getForbidden(`user ${name} is not allowed to ${action} package ${pkg.name}`)
+      );
+    } else {
+      callback(
+        errorUtils.getUnauthorized(`authorization required to ${action} package ${pkg.name}`)
+      );
+    }
+  };
+}
+
+/**
+ * Build a check for an action that falls back to `publish` when the packages
+ * configuration does not mention it.
+ *
+ * Answering `undefined` is the signal the {@link Auth} class watches for: it
+ * means "this action was never configured here", and the caller delegates to
+ * `allow_publish` instead of denying. That is what keeps `unpublish` and
+ * `stage` optional without changing behaviour for configurations that omit them.
+ */
+export function handleActionWithPublishFallback(
+  action: 'unpublish' | 'stage',
+  logger: Logger
+): any {
+  return function (user: RemoteUser, pkg: AuthPackageAllow, callback: AllowActionCallback): void {
+    // verify whether the prop has been defined
+    const isActionMissing: boolean = !pkg[action];
+    debug('is %s method missing ? %s', action, isActionMissing);
+    const hasGroups: boolean = isActionMissing ? false : (pkg[action] as string[]).length > 0;
+    logger.trace(
+      { user: user.name, name: pkg.name, action, hasGroups },
+      `fallback @{action} for @{name} has groups: @{hasGroups} for @{user}`
+    );
+
+    if (isActionMissing || hasGroups === false) {
+      return callback(null, undefined);
+    }
+
+    logger.trace(
+      { user: user.name, name: pkg.name, action, hasGroups },
+      `allow_action for @{action} for @{name} has groups: @{hasGroups} for @{user}`
+    );
+    return allow_action(action, logger)(user, pkg, callback);
+  };
+}
+
+/**
+ * @deprecated use {@link handleActionWithPublishFallback} with `'unpublish'`
+ */
+export function handleSpecialUnpublish(logger: Logger): any {
+  return handleActionWithPublishFallback('unpublish', logger);
+}
+
+export function buildUser(name: string, password: string, tokenKey?: string): string {
+  if (tokenKey) {
+    return JSON.stringify({ user: name, password, tokenKey });
+  }
+
+  return String(`${name}:${password}`);
+}

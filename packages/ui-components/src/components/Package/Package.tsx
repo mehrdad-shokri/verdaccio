@@ -1,0 +1,266 @@
+import { css } from '@emotion/react';
+import styled from '@emotion/styled';
+import BugReport from '@mui/icons-material/BugReport';
+import DownloadIcon from '@mui/icons-material/CloudDownload';
+import HomeIcon from '@mui/icons-material/Home';
+import CircularProgress from '@mui/material/CircularProgress';
+import Grid from '@mui/material/Grid';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import Tooltip from '@mui/material/Tooltip';
+import { common, grey } from '@mui/material/colors';
+import React, { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import type { Theme } from '../../';
+import { LinkExternal, useDownload, useManifests } from '../../';
+import { FileBinary, Law, Time, Version } from '../../components/Icons';
+import { getConfiguration } from '../../configuration';
+import type { Author as PackageAuthor } from '../../providers/ManifestsProvider/ManifestsProvider';
+import type { PackageMetaInterface } from '../../types/packageMeta';
+import { Route, url, utils } from '../../utils';
+import KeywordListItems from '../Keywords/KeywordListItems';
+import {
+  Author,
+  Avatar,
+  Description,
+  Details,
+  GridRightAligned,
+  IconButton,
+  OverviewItem,
+  PackageListItemText,
+  PackageTitle,
+  Published,
+  Wrapper,
+  VersionLink,
+  WrapperLink,
+} from './styles';
+
+interface Bugs {
+  url: string;
+}
+
+interface Dist {
+  unpackedSize: number;
+  tarball: string;
+}
+
+export interface PackageInterface {
+  name: string;
+  version: string;
+  time?: number | string;
+  author: PackageAuthor;
+  description?: string;
+  keywords?: PackageMetaInterface['latest']['keywords'];
+  license?: PackageMetaInterface['latest']['license'];
+  homepage?: string;
+  bugs?: Bugs | string;
+  dist?: Dist;
+  showDownload?: boolean;
+}
+
+const Package: React.FC<PackageInterface> = ({
+  author: { name: authorName, avatar: authorAvatar },
+  bugs,
+  description,
+  dist,
+  homepage,
+  keywords,
+  license,
+  name: packageName,
+  time,
+  showDownload = true,
+  version,
+}) => {
+  const config = getConfiguration();
+  const { t } = useTranslation();
+  const { isLoading } = useManifests();
+  const { downloadTarball } = useDownload();
+
+  const handleDownload = useCallback(
+    async (tarballDist: string) => {
+      // FIXME: check, the dist might be different thant npmjs
+      const link = tarballDist.replace(`https://registry.npmjs.org/`, config.base);
+      downloadTarball?.({ link });
+    },
+    [config, downloadTarball]
+  );
+
+  const renderVersionInfo = (): React.ReactNode =>
+    version && (
+      <OverviewItem>
+        <VersionLink
+          data-testid="package-version-link"
+          to={`${Route.DETAIL}${packageName}/v/${version}`}
+        >
+          <StyledVersion />
+          {t('package.version', { version })}
+        </VersionLink>
+      </OverviewItem>
+    );
+
+  const renderAuthorInfo = (): React.ReactNode => {
+    const name = utils.getAuthorName(authorName);
+    return (
+      <OverviewItem>
+        <Author>
+          <Avatar alt={name} src={authorAvatar} />
+          <Details>{name}</Details>
+        </Author>
+      </OverviewItem>
+    );
+  };
+
+  const renderFileSize = (): React.ReactNode =>
+    dist?.unpackedSize ? (
+      <OverviewItem>
+        <StyledFileBinary />
+        {utils.fileSizeSI(dist.unpackedSize)}
+      </OverviewItem>
+    ) : null;
+
+  const renderLicenseInfo = (): React.ReactNode =>
+    license && (
+      <OverviewItem>
+        <StyledLaw />
+        {license as string}
+      </OverviewItem>
+    );
+
+  const renderPublishedInfo = (): React.ReactNode =>
+    time && (
+      <OverviewItem>
+        <StyledTime />
+        <Published title={utils.formatDate(time)}>
+          {t('package.published-on', { time: utils.formatDateDistance(time) })}
+        </Published>
+      </OverviewItem>
+    );
+
+  const renderHomePageLink = (): React.ReactNode =>
+    homepage &&
+    url.isURL(homepage) && (
+      <LinkExternal to={homepage}>
+        <Tooltip aria-label={t('package.homepage')} title={t('package.visit-home-page')}>
+          <IconButton aria-label={t('package.homepage')} color="primary" size="large">
+            <HomeIcon />
+          </IconButton>
+        </Tooltip>
+      </LinkExternal>
+    );
+
+  const renderBugsLink = (): React.ReactNode => {
+    // bugs can be the object form or a plain url string, both valid in npm
+    const bugsUrl = utils.getBugsUrl(bugs);
+    return (
+      bugsUrl &&
+      url.isURL(bugsUrl) && (
+        <LinkExternal to={bugsUrl}>
+          <Tooltip aria-label={t('package.bugs')} title={t('package.open-an-issue')}>
+            <IconButton aria-label={t('package.bugs')} color="primary" size="large">
+              <BugReport />
+            </IconButton>
+          </Tooltip>
+        </LinkExternal>
+      )
+    );
+  };
+
+  const renderDownloadLink = (): React.ReactNode =>
+    dist?.tarball &&
+    url.isURL(dist.tarball) && (
+      // a plain button: wrapping it in <Link to="#"> pushed a stray `#` entry
+      // into the browser history on every download
+      <Tooltip
+        aria-label={t('package.download', { what: t('package.the-tar-file') })}
+        title={t('package.tarball')}
+      >
+        <IconButton
+          aria-label={t('package.download')}
+          color="primary"
+          data-testid="download-tarball"
+          onClick={() => {
+            handleDownload(dist.tarball);
+          }}
+          size="large"
+        >
+          {isLoading ? <CircularProgress size={13} /> : <DownloadIcon />}
+        </IconButton>
+      </Tooltip>
+    );
+
+  const renderPrimaryComponent = (): React.ReactNode => {
+    return (
+      <Grid alignItems="center" container={true} size={{ xs: 12 }} wrap="wrap">
+        <Grid size="grow">
+          <WrapperLink to={`${Route.DETAIL}${packageName}`}>
+            <PackageTitle className="package-title" data-testid="package-title">
+              {packageName}
+            </PackageTitle>
+          </WrapperLink>
+        </Grid>
+        <GridRightAligned size="auto">
+          {renderHomePageLink()}
+          {renderBugsLink()}
+          {showDownload && renderDownloadLink()}
+        </GridRightAligned>
+      </Grid>
+    );
+  };
+
+  const renderSecondaryComponent = (): React.ReactNode => <Description>{description}</Description>;
+
+  const renderPackageListItemText = (): React.ReactNode => (
+    <PackageListItemText
+      primary={renderPrimaryComponent()}
+      secondary={renderSecondaryComponent()}
+    />
+  );
+
+  const renderKeywords = (): React.ReactNode => (
+    <ListItem alignItems={'flex-start'} sx={{ py: 0, my: 0 }}>
+      <List sx={{ p: 0, my: 0 }}>
+        <KeywordListItems keywords={keywords} />
+      </List>
+    </ListItem>
+  );
+
+  return (
+    <Wrapper className={'package'} data-testid="package-item-list">
+      <ListItem alignItems={'flex-start'} sx={{ mb: 0 }}>
+        {renderPackageListItemText()}
+      </ListItem>
+      {keywords && keywords?.length > 0 ? renderKeywords() : null}
+      <ListItem alignItems={'flex-start'} sx={{ mt: 0 }}>
+        {renderAuthorInfo()}
+        {renderVersionInfo()}
+        {renderPublishedInfo()}
+        {renderFileSize()}
+        {renderLicenseInfo()}
+      </ListItem>
+    </Wrapper>
+  );
+};
+
+export default Package;
+
+const iconStyle = ({ theme }: { theme: Theme }) => css`
+  margin: 0 10px 0 0;
+  fill: ${theme.palette.mode === 'light' ? grey[900] : common.white};
+`;
+
+const StyledVersion = styled(Version)<{ theme?: Theme }>`
+  ${iconStyle};
+`;
+
+const StyledFileBinary = styled(FileBinary)<{ theme?: Theme }>`
+  ${iconStyle};
+`;
+
+const StyledLaw = styled(Law)<{ theme?: Theme }>`
+  ${iconStyle};
+`;
+
+const StyledTime = styled(Time)<{ theme?: Theme }>`
+  ${iconStyle};
+`;

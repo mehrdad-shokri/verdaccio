@@ -1,0 +1,1447 @@
+# @verdaccio/ui-theme
+
+## 9.0.0-next-9.44
+
+No changes in this release.
+
+## 9.0.0-next-9.43
+
+### Minor Changes
+
+- 8c56d8e: Show the provenance and registry signature of a version in the web UI.
+  
+  The package sidebar gets a "Provenance" section, under "Distribution", when the selected version carries a sigstore attestation or a registry signature, the fields registry.npmjs.org attaches to every version it signs. Its chip reads "Provenance: SLSA v1" for a version with provenance and "Registry signature" for one that only has a signature. Clicking it opens a dialog with the statement type, the signing key ids and a link to the attestation bundle. Nothing is verified in the browser: the dialog states what the registry metadata contains, and verification remains the job of `npm audit signatures`.
+  
+  The dialog also shows what the provenance statement says about the build, read from the attestation bundle by a new web endpoint, `GET /-/verdaccio/data/package/provenance/<name>?v=<version>`: the builder (GitHub Actions, self-hosted or not, or GitLab CI/CD, the two environments npm and Yarn generate provenance in), the source repository, ref and commit, the workflow file or job, the build run and the Sigstore transparency log entry, each linked to its origin. The endpoint relays the bundle from the uplink the version was synced from, applies the package access rules and answers 404 for versions without attestations. The build details therefore need an uplink that serves the npm attestation endpoint, `/-/npm/v1/attestations/<name>@<version>`, as registry.npmjs.org does; a Verdaccio upstream will only do so once it gains the registry signature routes, which are a separate change, and against such upstreams the dialog shows the summary and the bundle link alone. The request is made only when the dialog opens and only when the server announces the endpoint through the new `capabilities.provenance` UI option, so the theme keeps working against older servers without a single failing request: the chip, the dialog summary and the bundle link come from the sidebar data alone, and the build details simply stay out.
+
+## 9.0.0-next-9.42
+
+No changes in this release.
+
+## 9.0.0-next-9.41
+
+No changes in this release.
+
+## 9.0.0-next-9.40
+
+### Patch Changes
+
+- e2cb9d7: Show the bun publish command and the bun login note in the web UI help guide only while the bun tab is selected.
+  
+  The help guide listed `bun publish --registry <url>` and the note about bun having no login command whenever `bun` was in `web.pkgManagers`, which it is by default, so npm, pnpm and yarn users saw bun instructions too. Both now follow the client chosen in the first step: the bun tab shows `bun publish`, every other tab shows `npm publish`. Removing `bun` from `web.pkgManagers` still hides the bun tab entirely.
+- 9d16db0: Show the note about uplink packages only on the home page help card, not in the settings dialog.
+  
+  The note explaining that packages fetched from uplinks such as npmjs are cached but not listed, with its "How uplinks work" link, is about the empty package list on the home page. It was also shown under the publishing guide in the settings dialog, where there is no list to explain. It now appears only on the home page help card.
+- 6532105: Suggest Verdaccio's yarn-plugin-npm in the web UI help guide when the yarn tab is selected.
+  
+  The "Create a user or log in" step only offered `npm adduser`, so Yarn users had to switch to npm to get a token. With the yarn tab selected, the step now also shows how to install the plugin (`yarn dlx @verdaccio/yarn-import npm-login`) and log in with `yarn npm login --registry <url>`, which can create the user on the registry and stores the token in `~/.yarnrc.yml`, plus a link to https://github.com/verdaccio/yarn-plugin-npm. Other tabs are unchanged.
+- 601dd79: Make links inside the web UI's markdown text readable in dark mode.
+  
+  Text rendered from markdown, such as the package filter link under the minimum release age settings, the package manager notes and the translation contribution text in the settings dialog, used plain browser links whose default dark blue was nearly invisible on the dark theme. These links now use the theme's link style, the same as the documentation link in the dialog footer, in both light and dark mode. The custom footer, powered-by text and `web.help` markdown get the same styling, and every markdown link opens in a new tab.
+- 3b79553: Add bottom spacing to the settings dialog tabs so their last item no longer touches the dialog footer.
+  
+  In the publishing tab the last command box sat flush against the footer with the documentation link and close button, and looked cut off. Every tab of the settings dialog now has the same space below its content as above it.
+- e95d45a: Show untranslated web UI strings in English instead of leaving them blank after switching the UI language.
+  
+  The Crowdin export bundled with the UI can carry strings nobody has translated yet as empty values. The UI took those as valid translations, so in every language other than English large parts of the interface (security settings, package stages, the help guide, the package list toolbar, package manager names) rendered as empty labels and buttons. Empty strings now fall back to English, the same as strings missing from a translation. No configuration change is needed; the translation progress shown in the settings dialog was already correct.
+
+## 9.0.0-next-9.39
+
+### Minor Changes
+
+- eb0cb3d: Guide new registries to their first publish, filter and sort the package list on the web UI home page, and link to each package tab directly.
+  
+  The welcome card shown while the registry has no packages is now a step-by-step guide: point the package manager to the registry (with a tab for each manager listed in `web.pkgManagers`, plus the `.npmrc` line, honouring `web.scope`), create a user or log in (only when the web login is enabled), and publish. The page checks for new packages every ten seconds while the registry is empty, so the first published package appears without a reload. The same guide stays available once the registry has packages, in a new "Publishing" tab of the settings dialog (it shows `web.help` instead when that is set). The card also explains that packages installed through the registry from its uplinks are cached but not listed on this page, which only shows packages published to the registry. Copy buttons across the UI now confirm the copy with a check mark.
+  
+  When the registry holds more than one package, the home page shows a toolbar above the list. A text filter matches the package name, description and keywords; a scope selector appears when the registry holds packages from more than one scope; and the list can be sorted by name or by most recent publication, besides the default order set by `web.sort_packages`. The filter and the scope are kept in the address (`?q=` and `?scope=`), so going back from a package restores them, and the chosen sort is remembered in the browser. When nothing matches, the page says so instead of showing the onboarding help for an empty registry. Operators who prefer the plain list can hide the toolbar with `web.showPackageListToolbar: false`; the list then keeps the server order. The version shown for each package links to the page of that version.
+  
+  Search suggestions now show each result on two lines, name and version above the description. With `web.showUplinks` enabled they are grouped into packages published on this registry, packages cached from uplinks and packages only available from uplinks, each group with an icon and a count; with it disabled the list stays flat. The origin icons replace the former chips, which were announced as removable.
+  
+  The tabs of the package page (readme, dependencies, versions, uplinks) are now part of the address as `?tab=versions`, so a link opens the tab it points to and the back button returns to the previous one. Opening another package starts again on the readme.
+  
+  While the package list or a package page loads, the UI shows placeholders with the shape of the content instead of a full-page spinner. On phones, the version filter of the versions tab now takes the full width instead of half of it.
+  
+  The UI now also gives instructions for `bun`, which joins the default `web.pkgManagers` list (`yarn`, `pnpm`, `npm`, `bun`); registries that set `pkgManagers` explicitly keep their own list. With it, the installation box shows `bun add`, the welcome card adds a `bunfig.toml` setup tab and the `bun publish --registry` command, and the registry information dialog gets a bun section. Below the commands, the box shows the `.npmrc` line that points the package at this registry, scoped (`@scope:registry=...`) for scoped packages.
+  
+  The footer can now carry the operator's own content. Set `web.footer` to a markdown string, for example `footer: 'Need help? Read the [registry guide](https://verdaccio.org/docs/cli-registry)'`, and it replaces the default "Made with ♥" message; text, links and images are supported, and images stored in `web.assetFolder` are served under `/-/assets/`. The "Powered by" link on the right can be hidden with `web.poweredBy: false` or replaced with markdown in `web.poweredBy`, with the same support for text, links and images. Links open in a new tab and raw HTML in the markdown is not rendered.
+  
+  The welcome card can be replaced with the operator's own markdown through `web.help`, for example onboarding instructions specific to the company. `{{registryUrl}}` in the text is replaced with the address of the registry; links open in a new tab and raw HTML is not rendered. A blank value keeps the default guide.
+  
+  `web.showSearch: false` now also disables the web search endpoint (`/-/verdaccio/data/search`), which answers 404, besides hiding the search box in the header. The npm search API used by `npm search` is not affected.
+  
+  The registry information dialog gains a "Minimum release age" section. For each configured package manager it shows the setting that skips versions published in the last three days, in the file and unit that client reads (`min-release-age` in `.npmrc`, `minimumReleaseAge` in minutes in `pnpm-workspace.yaml`, `npmMinimalAgeGate` in `.yarnrc.yml`, `minimumReleaseAge` in seconds in `bunfig.toml`), with the registry's `web.scope` exempt where the client allows it, so its own packages install right away: npm and pnpm exclude the scope, yarn gets a per-scope gate under `npmScopes`, and bun, which only exempts exact package names, gets a note saying so. It also points registry operators to the package filter's `minAgeDays`.
+
+## 9.0.0-next-9.38
+
+### Patch Changes
+
+- d8ff951: Show how much of each language is translated in the web UI settings, and translate the UI from a single Crowdin source file.
+  
+  The Translations tab of the settings dialog now shows the translated percentage of every language on smaller, keyboard-accessible cards, and links to a short guide on how to contribute translations or request a new language. Crowdin now exports only translated strings, so untranslated keys keep falling back to English while the percentage reflects real progress.
+  
+  The UI strings were uploaded to Crowdin twice, once from `@verdaccio/ui-i18n` and once from a copy inside `@verdaccio/ui-theme`, and the two copies had already drifted apart once. The strings and the downloaded translations now live in `@verdaccio/ui-components`, next to the components that render them, which also exports `loadTranslationFile()` and bundles every downloaded language at build time. `@verdaccio/ui-theme` uses that loader instead of its own copy, and the translations link in the default configuration files points to the new guide.
+  
+  `@verdaccio/ui-i18n` is no longer released from this line. Its published loader only ever returned English for builds, because the downloaded translations were never part of its package; use `loadTranslationFile` from `@verdaccio/ui-components` instead. No configuration changes are required.
+- 52d92de: Offer the web UI languages that are actually translated.
+  
+  Korean, Polish and Galician are now available in the language selector, as each has more than 20% of the UI translated on Crowdin. Japanese, Ukrainian and Khmer are removed because no translations exist for them, so selecting them only showed English. Dates now also follow the selected language for Irish, Italian, Korean, Polish and Galician. More languages can be requested from the translation guide linked in the settings dialog.
+
+## 9.0.0-next-9.37
+
+### Patch Changes
+
+- 4a483d0: Move the Change Password option from the login form to the signed-in user's account menu.
+  
+  When `flags.changePassword` is enabled, users can now open the password change form from their account menu. Previously, the link appeared in the login form even though changing a password requires an authenticated session. The option remains hidden when the feature is disabled.
+  
+  Opening the password change URL without a session now displays a sign-in dialog explaining that authentication is required. Successful sign-in returns users to the form at the same URL. If the server rejects an expired session, the form is cleared and sign-in is requested again.
+  
+  The password change form no longer asks for a username. The authenticated session determines which account is updated; users enter only their current password, new password and confirmation.
+  
+  An incorrect current password submitted through the web form (`PUT /-/verdaccio/sec/reset_password`) now returns HTTP 400 with `invalid old password` when using the bundled htpasswd or auth-memory plugin. Previously it returned a generic HTTP 500. The form displays a translated field error and keeps the session open so the user can correct the password. Unexpected plugin and storage failures on that endpoint still return a generic HTTP 500.
+  
+  `npm profile set password` (`POST /-/npm/v1/user`) still returns HTTP 403 for an incorrect current password, as do plugin and storage failures on that endpoint, but the message is now `invalid old password` instead of `Unable to change password for user '<name>': invalid old password`.
+
+## 9.0.0-next-9.36
+
+No changes in this release.
+
+## 9.0.0-next-9.35
+
+No changes in this release.
+
+## 9.0.0-next-9.34
+
+No changes in this release.
+
+## 9.0.0-next-9.33
+
+## 9.0.0-next-9.32
+
+### Patch Changes
+
+- f3f8976: chore: replace \_\_dirname with import.meta.dirname
+
+## 9.0.0-next-9.31
+
+### Patch Changes
+
+- 770ebe4: fix(ui): follow-ups to the web UI bug batch
+  
+  - login and signup now update the auth context, so the header reflects the session immediately instead of showing the login button until a manual refresh
+  - a 2xx login/signup response without a token shows an error instead of a false success page
+  - a readme-only failure no longer blanks the whole package detail page, and a failed revalidation no longer hides the cached package list on the home page
+  - the versions filter resets when navigating to another package instead of silently applying the previous package's filter
+  - the search dropdown shows the loading state during the debounce window instead of flashing "No results found" on every keystroke
+  - the session now logs out exactly when the token expires (single timer) instead of polling every minute and hard-reloading mid-interaction
+  - a malformed leading `funding` entry no longer hides a later valid funding url
+- 8b2b136: Web UI bug batch:
+  
+  - the create-user form posted to a non-existent endpoint, so web signup always failed; it now calls `PUT /-/verdaccio/sec/signup` with the required `sessionId` and logs the new user in
+  - 5xx/network failures rendered a blank detail page whose tabs crashed the whole app, and an unreachable backend looked like an empty registry inviting to publish; both now show a proper error state
+  - the router used the raw `url_prefix` as basename, leaving the UI blank or 404ing behind proxies and `VERDACCIO_PUBLIC_URL`; it now uses the server-normalized basename, and the security pages' links/redirects respect sub-path deployments
+  - the whole `security.*` i18n namespace was missing from the shipped bundle (raw keys on the login, add-user and change-password pages); both crowdin sources are now synced and kept aligned by a parity test, and dates follow the selected language
+  - requesting a version that does not exist (`/v/9.9.9`, a dist-tag, or `__proto__`) silently served `latest` under the requested title; the sidebar and readme endpoints now answer 404, with own-property version lookups that also close a prototype-pollution path flagged by CodeQL
+  - login/search/download failures were swallowed or all mapped to "invalid username or password"; errors are now surfaced and translated, submits are reentrancy-guarded against duplicate requests, and a 2xx login response without a token no longer passes as a login
+  - logging out re-hydrated the session from storage before clearing it, expired tokens lingered in localStorage for up to an hour, and malformed tokens were printed to the console
+  - assorted fixes: `yarn global add -g true`, clipboard on plain-http deployments, versions tab showing the previous package's data, missing gravatars, corrupted staged tarball downloads, string forms of `repository`/`funding`/`bugs`, developers without email collapsing into one, stray "0"s and "Invalid Date" tooltips, empty keywords section, nested `<form>` markup, a11y labels and the vendor notice in the browser console
+- 770ebe4: fix(ui): drop `credentials: 'include'` from the tarball download fetch. Web-UI auth travels in the `Authorization: Bearer` header, not cookies, so `include` gained nothing but made the browser reject the registry's wildcard `Access-Control-Allow-Origin: *` on cross-origin downloads (e.g. `pnpm start`, where the UI dev server on :4873 fetches tarballs from the registry on :8000), breaking the download-tarball button with a CORS error.
+
+## 9.0.0-next-9.30
+
+## 9.0.0-next-9.29
+
+### Minor Changes
+
+- 30601b3: feat: staged publishing (`npm stage`) behind the `stage` flag
+
+  Adds the `/-/stage` endpoints so a package version can be uploaded for review and
+  only becomes installable once a maintainer approves it. Everything is gated by
+  the new `stage` feature flag, which defaults to `false`.
+
+  ```yaml
+  flags:
+    stage: true
+  ```
+
+  The whole `npm stage` family is supported — `publish`, `list`, `view`,
+  `download`, `approve` and `reject` — verified end to end against npm 11.17.
+  Staging never asks for a one-time password: deferring proof of presence to
+  approval time is the point of the flow, which lets a pipeline prepare a release
+  that a human approves later.
+
+  Package access gains a `stage` entry deciding who may submit a version for
+  review:
+
+  ```yaml
+  packages:
+    "my-company-*":
+      access: $authenticated
+      stage: developers
+      publish: release-managers
+  ```
+
+  It falls back to `publish` when omitted, exactly as `unpublish` already does, so
+  existing configurations are unaffected. Granting it to a group that lacks
+  `publish` is what turns review into a real gate: those users can propose a
+  release but neither publish one directly nor approve their own submission, though
+  they can always withdraw it. Auth plugins can implement `allow_stage`; returning
+  `undefined` defers to `allow_publish`.
+
+  Staging fires a notification with `publishType: 'stage'` and rejecting fires
+  `unstage`, so a staged version no longer waits unnoticed until somebody runs
+  `npm stage list`. Approving keeps reporting `publish`, because that is what it
+  does.
+
+  Staged items are persisted through the storage plugin interface, so any storage
+  plugin works unchanged, and the namespace is never registered in the plugin
+  database — staged versions stay out of search and the package list.
+
+  The web UI gains a "Staged packages" view (list, detail, approve, reject,
+  download) that appears only while the flag is on.
+
+## 9.0.0-next-9.28
+
+## 9.0.0-next-9.27
+
+### Patch Changes
+
+- 65cd24e: fix(ui-theme): build error due to country-flag-icons
+- 284cbd0: fix(ui-theme): type check errors
+
+## 9.0.0-next-9.26
+
+## 9.0.0-next-9.25
+
+## 9.0.0-next-9.24
+
+## 9.0.0-next-9.23
+
+## 9.0.0-next-9.22
+
+### Patch Changes
+
+- 6a87488: Fix type resolution for the TypeScript 7 upgrade: switch the UI packages to `moduleResolution: bundler` (required to resolve react-router 8 types via its `exports` map), declare `@mui/system` as a direct dependency so emitted declarations can reference its types portably, and replace the legacy `@mui/material/styles/createTheme` module augmentation with the `@mui/material/styles` entry point.
+
+  Declaration files are now emitted with the TypeScript compiler itself (`tsc --emitDeclarationOnly`) instead of `vite-plugin-dts`, which has no JS compiler API to hook into on TypeScript 7. This drops the `@typescript/typescript6` fallback install (and with it a duplicated i18next instance that left the settings dialog's language list empty). `runCli()` in `@verdaccio/cli` is now correctly typed as `Promise<void>` — the previous `Promise<number>` annotation was wrong and only survived because the old declaration generator ignored type errors.
+
+  The Cypress e2e specs are now bundled with Vite (the default webpack/ts-loader preprocessor requires the TypeScript JS compiler API, which TypeScript 7 no longer ships).
+
+## 9.0.0-next-9.21
+
+## 9.0.0-next-9.20
+
+## 9.0.0-next-9.19
+
+### Patch Changes
+
+- 47f122f: chore(deps): clean-up unused and duplicates
+
+## 9.0.0-next-9.18
+
+## 9.0.0-next-9.17
+
+### Patch Changes
+
+- 6408a85: chore: force release
+
+## 9.0.0-next-9.16
+
+## 9.0.0-next-9.15
+
+### Patch Changes
+
+- 19471c8: chore(ui): pin vite and remove eslint plugin deps
+
+## 9.0.0-next-9.14
+
+## 9.0.0-next-9.13
+
+### Patch Changes
+
+- 9006b9d: Add debug dependency to ui-theme
+- f19a638: chore: fix vite build warnings and errors
+- 0ae9e93: chore(ui-theme): stderr during tests
+
+## 9.0.0-next-9.12
+
+## 9.0.0-next-9.11
+
+## 9.0.0-next-9.10
+
+## 9.0.0-next-9.9
+
+## 9.0.0-next-9.8
+
+## 9.0.0-next-9.7
+
+### Patch Changes
+
+- d148dc2: chore(ui-theme): reduce package size
+
+## 9.0.0-next-9.6
+
+### Patch Changes
+
+- 80ddcda: chore(ui): remove babel dependency
+- 9d5360b: chore: vite replace rollupOptions with rolldownOptions
+
+## 9.0.0-next-9.5
+
+### Patch Changes
+
+- 8f9bcc8: fix: links to doc
+- 1d5462f: chore: finish update vitest to 4.1.0
+
+## 9.0.0-next-9.4
+
+## 9.0.0-next-9.3
+
+## 9.0.0-next-9.2
+
+### Major Changes
+
+- 325c584: feat: migrate to vite
+
+## 9.0.0-next-9.1
+
+## 9.0.0-next-9.0
+
+### Major Changes
+
+- 7f80af5: chore: bump package
+
+## 8.0.0-next-8.31
+
+### Minor Changes
+
+- b5eccfc: feat: remove rematch refactor ui
+- 3243194: refactor: make asset manifest bundler-agnostic
+
+## 8.0.0-next-8.30
+
+## 8.0.0-next-8.29
+
+## 8.0.0-next-8.28
+
+## 8.0.0-next-8.27
+
+## 8.0.0-next-8.26
+
+## 8.0.0-next-8.25
+
+### Patch Changes
+
+- b24f513: chore(lint): switch rules from jest to vitest
+
+## 8.0.0-next-8.24
+
+## 8.0.0-next-8.23
+
+## 8.0.0-next-8.22
+
+### Patch Changes
+
+- f443f81: chore(deps): sync and pin dependencies
+
+## 8.0.0-next-8.21
+
+## 8.0.0-next-8.20
+
+### Patch Changes
+
+- 08e1b21: chore(deps): built-in node imports
+
+## 8.0.0-next-8.19
+
+### Patch Changes
+
+- 07a0ecb: chore(ui): update deps and storybook
+
+## 8.0.0-next-8.18
+
+## 8.0.0-next-8.17
+
+## 8.0.0-next-8.16
+
+### Minor Changes
+
+- 626ae6a: feat: web v1 login frontend (experimental)
+
+### Patch Changes
+
+- 04c4e5b: chore(ui): minor app improvements
+
+## 8.0.0-next-8.15
+
+## 8.0.0-next-8.14
+
+## 8.0.0-next-8.13
+
+### Patch Changes
+
+- ef6864c: chore(deps): update webpack-dev-server to v5
+- c81bd75: chore(ui): update react-json-view
+- 99f6e11: chore(ui): flags import and minor updates
+- e4a1539: chore: package.json maintenance
+- 0607e80: chore: update readme badges and license files
+
+## 8.0.0-next-8.12
+
+## 8.0.0-next-8.11
+
+## 8.0.0-next-8.10
+
+## 8.0.0-next-8.9
+
+## 8.0.0-next-8.8
+
+## 8.0.0-next-8.7
+
+## 8.0.0-next-8.6
+
+## 8.0.0-next-8.5
+
+### Patch Changes
+
+- 0225c80: chore(ui): vitest follow-ups
+
+## 8.0.0-next-8.4
+
+### Patch Changes
+
+- e93d6a3: chore: auth package requires logger as parameter
+
+## 8.0.0-next-8.3
+
+## 8.0.0-next-8.2
+
+### Minor Changes
+
+- 6a8154c: feat: update logger pino to latest
+
+## 8.0.0-next-8.1
+
+## 8.0.0-next-8.0
+
+### Major Changes
+
+- chore: move v7 next to v8 next
+
+## 7.0.0
+
+### Major Changes
+
+- 47f61c6: feat!: bump to v7
+- e7ebccb: update major dependencies, remove old nodejs support
+
+### Minor Changes
+
+- 580319a: feat: ui improvements
+
+  Some UI improvements
+
+  - download progress indicator: https://github.com/verdaccio/verdaccio/discussions/4068
+  - fix dark mode and readme css support https://github.com/verdaccio/verdaccio/discussions/3942 https://github.com/verdaccio/verdaccio/discussions/3467
+  - fix global for yarn packages and add version to the packages on copy
+  - feat: hide deprecated versions option
+  - fix: improve deprecated package style
+  - feat: display deprecated versions
+
+- c9962fe: feat: forbidden user interface
+
+### Patch Changes
+
+- 92f1c34: - fixed login state when token is expired (@ku3mi41 in #3980)
+- e056c8d: - added `onClick` prop to `Link` component in @verdaccio/ui-components. (@moglerdev in #3989)
+  - resolved issue in the `Package` component where the download button was incorrectly opening a new tab to the homepage. (@moglerdev in #3989)
+- 10dd81f: feat: complete overhaul of web user interface
+- 5a77414: chore: fix type for country flags
+- 303c659: fix: enable irish language on ui
+- 02ba426: fix: display labels for engine versions
+- ba53d1e: feat: versions filter by semver range
+- 3323599: fix: render READMEs with correct font and highlighting
+- 5210408: fix: ui dialog break pages on open due remark error
+- 117eb1c: fix: change bundleDependencies to array
+
+## 7.0.0-next-8.21
+
+### Patch Changes
+
+- 303c659: fix: enable irish language on ui
+
+## 7.0.0-next-7.20
+
+## 7.0.0-next-7.19
+
+### Patch Changes
+
+- 5a77414: chore: fix type for country flags
+
+## 7.0.0-next-7.18
+
+### Patch Changes
+
+- 10dd81f: feat: complete overhaul of web user interface
+
+## 7.0.0-next-7.17
+
+### Patch Changes
+
+- 117eb1c: fix: change bundleDependencies to array
+
+## 7.0.0-next-7.16
+
+## 7.0.0-next-7.15
+
+## 7.0.0-next-7.14
+
+## 7.0.0-next-7.13
+
+### Patch Changes
+
+- ba53d1e: feat: versions filter by semver range
+
+## 7.0.0-next-7.12
+
+## 7.0.0-next-7.11
+
+### Minor Changes
+
+- c9962fe: feat: forbidden user interface
+
+## 7.0.0-next-7.10
+
+### Patch Changes
+
+- 5210408: fix: ui dialog break pages on open due remark error
+
+## 7.0.0-next-7.9
+
+## 7.0.0-next-7.8
+
+### Patch Changes
+
+- 3323599: fix: render READMEs with correct font and highlighting
+
+## 7.0.0-next-7.7
+
+## 7.0.0-next.6
+
+## 7.0.0-next.5
+
+## 7.0.0-next.4
+
+## 7.0.0-next.3
+
+### Major Changes
+
+- e7ebccb61: update major dependencies, remove old nodejs support
+
+### Minor Changes
+
+- 580319a53: feat: ui improvements
+
+  Some UI improvements
+
+  - download progress indicator: https://github.com/verdaccio/verdaccio/discussions/4068
+  - fix dark mode and readme css support https://github.com/verdaccio/verdaccio/discussions/3942 https://github.com/verdaccio/verdaccio/discussions/3467
+  - fix global for yarn packages and add version to the packages on copy
+  - feat: hide deprecated versions option
+  - fix: improve deprecated package style
+  - feat: display deprecated versions
+
+### Patch Changes
+
+- 02ba426ce: fix: display labels for engine versions
+
+## 7.0.0-next.2
+
+### Patch Changes
+
+- 92f1c34ae: - fixed login state when token is expired (@ku3mi41 in #3980)
+
+## 7.0.0-next.1
+
+### Patch Changes
+
+- e056c8dfd: - added `onClick` prop to `Link` component in @verdaccio/ui-components. (@moglerdev in #3989)
+  - resolved issue in the `Package` component where the download button was incorrectly opening a new tab to the homepage. (@moglerdev in #3989)
+
+## 7.0.0-next.0
+
+### Major Changes
+
+- feat!: bump to v7
+
+## 6.0.0
+
+### Major Changes
+
+- 292c0a37f: feat!: replace deprecated request dependency by got
+
+  This is a big refactoring of the core, fetching dependencies, improve code, more tests and better stability. This is essential for the next release, will take some time but would allow modularize more the core.
+
+  ## Notes
+
+  - Remove deprecated `request` by other `got`, retry improved, custom Agent ( got does not include it built-in)
+  - Remove `async` dependency from storage (used by core) it was linked with proxy somehow safe to remove now
+  - Refactor with promises instead callback wherever is possible
+  - ~Document the API~
+  - Improve testing, integration tests
+  - Bugfix
+  - Clean up old validations
+  - Improve performance
+
+  ## 💥 Breaking changes
+
+  - Plugin API methods were callbacks based are returning promises, this will break current storage plugins, check documentation for upgrade.
+  - Write Tarball, Read Tarball methods parameters change, a new set of options like `AbortController` signals are being provided to the `addAbortSignal` can be internally used with Streams when a request is aborted. eg: `addAbortSignal(signal, fs.createReadStream(pathName));`
+  - `@verdaccio/streams` stream abort support is legacy is being deprecated removed
+  - Remove AWS and Google Cloud packages for future refactoring [#2574](https://github.com/verdaccio/verdaccio/pull/2574).
+
+- 459b6fa72: refactor: search v1 endpoint and local-database
+
+  - refactor search `api v1` endpoint, improve performance
+  - remove usage of `async` dependency https://github.com/verdaccio/verdaccio/issues/1225
+  - refactor method storage class
+  - create new module `core` to reduce the ammount of modules with utilities
+  - use `undici` instead `node-fetch`
+  - use `fastify` instead `express` for functional test
+
+  ### Breaking changes
+
+  - plugin storage API changes
+  - remove old search endpoint (return 404)
+  - filter local private packages at plugin level
+
+  The storage api changes for methods `get`, `add`, `remove` as promise base. The `search` methods also changes and recieves a `query` object that contains all query params from the client.
+
+  ```ts
+  export interface IPluginStorage<T> extends IPlugin {
+    add(name: string): Promise<void>;
+    remove(name: string): Promise<void>;
+    get(): Promise<any>;
+    init(): Promise<void>;
+    getSecret(): Promise<string>;
+    setSecret(secret: string): Promise<any>;
+    getPackageStorage(packageInfo: string): IPackageStorage;
+    search(query: searchUtils.SearchQuery): Promise<searchUtils.SearchItem[]>;
+    saveToken(token: Token): Promise<any>;
+    deleteToken(user: string, tokenKey: string): Promise<any>;
+    readTokens(filter: TokenFilter): Promise<Token[]>;
+  }
+  ```
+
+- 794af76c5: Remove Node 12 support
+
+  - We need move to the new `undici` and does not support Node.js 12
+
+- 999787974: feat(web): components for custom user interfaces
+
+  Provides a package that includes all components from the user interface, instead being embedded at the `@verdaccio/ui-theme` package.
+
+  ```
+  npm i -D @verdaccio/ui-components
+  ```
+
+  The package contains
+
+  - Components
+  - Providers
+  - Redux Storage
+  - Layouts (precomposed layouts ready to use)
+  - Custom Material Theme
+
+  The `@verdaccio/ui-theme` will consume this package and will use only those are need it.
+
+  > Prerequisites are using Redux, Material-UI and Translations with `i18next`.
+
+  Users could have their own Material UI theme and build custom layouts, adding new features without the need to modify the default project.
+
+- 82cb0f2bf: feat!: config.logs throw an error, logging config not longer accept array or logs property
+
+  ### 💥 Breaking change
+
+  This is valid
+
+  ```yaml
+  log: { type: stdout, format: pretty, level: http }
+  ```
+
+  This is invalid
+
+  ```yaml
+  logs: { type: stdout, format: pretty, level: http }
+  ```
+
+  or
+
+  ```yaml
+  logs:
+    - [{ type: stdout, format: pretty, level: http }]
+  ```
+
+- 000d43746: feat: upgrade to material ui 5
+- 558d78f32: feat: flexible user interface generator
+
+  **breaking change**
+
+  The UI does not provide a pre-generated `index.html`, instead the server generates
+  the body of the web application based in few parameters:
+
+  - Webpack manifest
+  - User configuration details
+
+  It allows inject html tags, javascript and new CSS to make the page even more flexible.
+
+  ### Web new properties for dynamic template
+
+  The new set of properties are made in order allow inject _html_ and _JavaScript_ scripts within the template. This
+  might be useful for scenarios like Google Analytics scripts or custom html in any part of the body.
+
+  - metaScripts: html injected before close the `head` element.
+  - scriptsBodyAfter: html injected before close the `body` element.
+  - bodyAfter: html injected after _verdaccio_ JS scripts.
+
+  ```yaml
+  web:
+    scriptsBodyAfter:
+      - '<script type="text/javascript" src="https://my.company.com/customJS.min.js"></script>'
+    metaScripts:
+      - '<script type="text/javascript" src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>'
+      - '<script type="text/javascript" src="https://browser.sentry-cdn.com/5.15.5/bundle.min.js"></script>'
+      - '<meta name="robots" content="noindex" />'
+    bodyBefore:
+      - '<div id="myId">html before webpack scripts</div>'
+    bodyAfter:
+      - '<div id="myId">html after webpack scripts</div>'
+  ```
+
+  ### UI plugin changes
+
+  - `index.html` is not longer used, template is generated based on `manifest.json` generated by webpack.
+  - Plugin must export:
+    - the manifest file.
+    - the manifest files: matcher (array of id that generates required scripts to run the ui)
+    - static path: The absolute path where the files are located in `node_modules`
+
+  ```
+  exports.staticPath = path.join(__dirname, 'static');
+  exports.manifest = require('./static/manifest.json');
+  exports.manifestFiles = {
+    js: ['runtime.js', 'vendors.js', 'main.js'],
+    css: [],
+    ico: 'favicon.ico',
+  };
+  ```
+
+  - Remove font files
+  - CSS is inline on JS (this will help with #2046)
+
+  ### Docker v5 Examples
+
+  - Move all current examples to v4 folder
+  - Remove any v3 example
+  - Create v5 folder with Nginx Example
+
+  #### Related tickets
+
+  https://github.com/verdaccio/verdaccio/issues/1523
+  https://github.com/verdaccio/verdaccio/issues/1297
+  https://github.com/verdaccio/verdaccio/issues/1593
+  https://github.com/verdaccio/verdaccio/discussions/1539
+  https://github.com/verdaccio/website/issues/264
+  https://github.com/verdaccio/verdaccio/issues/1565
+  https://github.com/verdaccio/verdaccio/issues/1251
+  https://github.com/verdaccio/verdaccio/issues/2029
+  https://github.com/verdaccio/docker-examples/issues/29
+
+- 781ac9ac2: fix package configuration issues
+
+### Minor Changes
+
+- 0da7031e7: allow disable login on ui and endpoints
+
+  To be able disable the login, set `login: false`, anything else would enable login. This flag will disable access via UI and web endpoints.
+
+  ```yml
+  web:
+    title: verdaccio
+    login: false
+  ```
+
+- 67406082e: upgrade to react@17 and other dependencies
+- 0481b9a32: feat: upgrade to react 18
+- ad3151c3f: fix: remove engines from ui-theme
+- 7344a7fcf: feat: ui bugfixes and improvements
+- a23628be9: feat: parse and sanitize on ui
+- 048ac95e8: feat: align with v5 ui endpoints and ui small bugfix
+- e9e455265: feat: ui theme plugin part of the application
+- b61f762d6: feat: add server rate limit protection to all request
+
+  To modify custom values, use the server settings property.
+
+  ```markdown
+  server:
+
+  ## https://www.npmjs.com/package/express-rate-limit#configuration-options
+
+  rateLimit:
+  windowMs: 1000
+  max: 10000
+  ```
+
+  The values are intended to be high, if you want to improve security of your server consider
+  using different values.
+
+- 5fed1955a: feat: integrate rematch for ui state storage
+- d43894e8f: feat: rework web header for mobile, add new settings and raw manifest button
+
+  ### New set of variables to hide features
+
+  Add set of new variables that allow hide different parts of the UI, buttons, footer or download tarballs. _All are
+  enabled by default_.
+
+  ```yaml
+  # login: true <-- already exist but worth the reminder
+  # showInfo: true
+  # showSettings: true
+  # In combination with darkMode you can force specific theme
+  # showThemeSwitch: true
+  # showFooter: true
+  # showSearch: true
+  # showDownloadTarball: true
+  ```
+
+  > If you disable `showThemeSwitch` and force `darkMode: true` the local storage settings would be
+  > ignored and force all themes to the one in the configuration file.
+
+  Future could be extended to
+
+  ### Raw button to display manifest package
+
+  A new experimental feature (enabled by default), button named RAW to be able navigate on the package manifest directly on the ui, kudos to [react-json-view](https://www.npmjs.com/package/react-json-view) that allows an easy integration, not configurable yet until get more feedback.
+
+  ```yaml
+  showRaw: true
+  ```
+
+  #### Rework header buttons
+
+  - The header has been rework, the mobile was not looking broken.
+  - Removed info button in the header and moved to a dialog
+  - Info dialog now contains more information about the project, license and the aid content for Ukrania now is inside of the info modal.
+  - Separate settings and info to avoid collapse too much info (for mobile still need some work)
+
+- 154b2ecd3: refactor: remove @verdaccio/commons-api in favor @verdaccio/core and remove duplications
+- 5167bb528: feat: ui search support for remote, local and private packages
+
+  The command `npm search` search globally and return all matches, with this improvement the user interface
+  is powered with the same capabilities.
+
+  The UI also tag where is the origin the package with a tag, also provide the latest version and description of the package.
+
+- 7ff4808be: feat: improve registry info dialog and language switch
+- 45c03819e: refactor: render html middleware
+- aecbd226d: web: allow ui hide package managers on sidebar
+
+  If there is a package manager of preference over others, you can define the package managers to be displayed on the detail page and sidebar, just define in the `config.yaml` and web section the list of package managers to be displayed.
+
+  ```
+  web:
+    title: Verdaccio
+    sort_packages: asc
+    primary_color: #cccccc
+    pkgManagers:
+      - pnpm
+      - yarn
+      # - npm
+  ```
+
+  To disable all package managers, just define empty:
+
+  ```
+  web:
+    title: Verdaccio
+    sort_packages: asc
+    primary_color: #cccccc
+    pkgManagers:
+  ```
+
+  and the section would be hidden.
+
+### Patch Changes
+
+- bf4ac5006: fix: markdown ul and img styles
+- a2b69a08e: add banner support ukraine
+- a179f1fd4: show verdaccio logo in the footer even when custom brand is set
+- 5d9b65a1e: chore: improve info regarding using private registries
+- 351aeeaa8: fix(deps): @verdaccio/utils should be a prod dep of local-storage
+- a828a5f6c: fix: #3174 set correctly ui values to html render
+- a610ef26b: chore: add release step to private regisry on merge changeset pr
+- df53f61c6: feat: add types and package module icons on sidebar
+- 635ca3f92: chore: force publish
+- 648575aa4: Bug Fixes
+
+  - fix escaped slash in namespaced packages
+
+  #### Related tickets
+
+  https://github.com/verdaccio/verdaccio/pull/2193
+
+- 027718057: Hide search icon on medium or larger devices
+- aa0b2aa9d: fix: replace ts icon by td and fix commonjs icon
+- 4fc21146a: fix: missing logo on header
+- b4cc80017: fix: improve abort request search
+- 20d63dc30: ui: basic grammatical fixes in the Ukraine Message
+- d4019f634: Add links to "Current Tags" and sort them in descending order
+- c90896313: fix: specific version package detail page not showing
+- 910fc03f6: fix menuKey for Khmer language
+- 5b3903963: fix: fixes some style issues on mobile, particularly related to the Ukraine support message - [@s-h-a-d-o-w](https://github.com/s-h-a-d-o-w)
+- 0dafa9826: fix: undefined field on missing count
+- 6ad13de88: feat: Display publication time on sidebar
+
+## 6.0.0-6-next.76
+
+## 6.0.0-6-next.75
+
+## 6.0.0-6-next.74
+
+## 6.0.0-6-next.73
+
+## 6.0.0-6-next.72
+
+## 6.0.0-6-next.71
+
+### Minor Changes
+
+- 7344a7fcf: feat: ui bugfixes and improvements
+
+## 6.0.0-6-next.70
+
+## 6.0.0-6-next.69
+
+### Patch Changes
+
+- 910fc03f: fix menuKey for Khmer language
+
+## 6.0.0-6-next.68
+
+### Patch Changes
+
+- 0dafa982: fix: undefined field on missing count
+
+## 6.0.0-6-next.67
+
+## 6.0.0-6-next.66
+
+## 6.0.0-6-next.65
+
+## 6.0.0-6-next.64
+
+## 6.0.0-6-next.63
+
+## 6.0.0-6-next.62
+
+### Major Changes
+
+- 781ac9ac: fix package configuration issues
+
+### Patch Changes
+
+- 4fc21146: fix: missing logo on header
+
+## 6.0.0-6-next.61
+
+## 6.0.0-6-next.60
+
+### Minor Changes
+
+- 45c03819: refactor: render html middleware
+
+## 6.0.0-6-next.59
+
+## 6.0.0-6-next.58
+
+## 6.0.0-6-next.57
+
+## 6.0.0-6-next.56
+
+## 6.0.0-6-next.55
+
+## 6.0.0-6-next.54
+
+## 6.0.0-6-next.53
+
+### Major Changes
+
+- 99978797: feat(web): components for custom user interfaces
+
+  Provides a package that includes all components from the user interface, instead being embedded at the `@verdaccio/ui-theme` package.
+
+  ```
+  npm i -D @verdaccio/ui-components
+  ```
+
+  The package contains
+
+  - Components
+  - Providers
+  - Redux Storage
+  - Layouts (precomposed layouts ready to use)
+  - Custom Material Theme
+
+  The `@verdaccio/ui-theme` will consume this package and will use only those are need it.
+
+  > Prerequisites are using Redux, Material-UI and Translations with `i18next`.
+
+  Users could have their own Material UI theme and build custom layouts, adding new features without the need to modify the default project.
+
+## 6.0.0-6-next.52
+
+### Patch Changes
+
+- bf4ac500: fix: markdown ul and img styles
+- 5d9b65a1: chore: improve info regarding using private registries
+
+## 6.0.0-6-next.51
+
+### Minor Changes
+
+- 0481b9a3: feat: upgrade to react 18
+- a23628be: feat: parse and sanitize on ui
+
+## 6.0.0-6-next.50
+
+### Patch Changes
+
+- b4cc8001: fix: improve abort request search
+
+## 6.0.0-6-next.49
+
+### Patch Changes
+
+- 6ad13de8: feat: Display publication time on sidebar
+
+## 6.0.0-6-next.48
+
+### Patch Changes
+
+- 02771805: Hide search icon on medium or larger devices
+- d4019f63: Add links to "Current Tags" and sort them in descending order
+
+## 6.0.0-6-next.28
+
+### Patch Changes
+
+- 351aeeaa: fix(deps): @verdaccio/utils should be a prod dep of local-storage
+
+## 6.0.0-6-next.27
+
+### Patch Changes
+
+- 20d63dc3: ui: basic grammatical fixes in the Ukraine Message
+
+## 6.0.0-6-next.26
+
+### Major Changes
+
+- 292c0a37: feat!: replace deprecated request dependency by got
+
+  This is a big refactoring of the core, fetching dependencies, improve code, more tests and better stability. This is essential for the next release, will take some time but would allow modularize more the core.
+
+  ## Notes
+
+  - Remove deprecated `request` by other `got`, retry improved, custom Agent ( got does not include it built-in)
+  - Remove `async` dependency from storage (used by core) it was linked with proxy somehow safe to remove now
+  - Refactor with promises instead callback wherever is possible
+  - ~Document the API~
+  - Improve testing, integration tests
+  - Bugfix
+  - Clean up old validations
+  - Improve performance
+
+  ## 💥 Breaking changes
+
+  - Plugin API methods were callbacks based are returning promises, this will break current storage plugins, check documentation for upgrade.
+  - Write Tarball, Read Tarball methods parameters change, a new set of options like `AbortController` signals are being provided to the `addAbortSignal` can be internally used with Streams when a request is aborted. eg: `addAbortSignal(signal, fs.createReadStream(pathName));`
+  - `@verdaccio/streams` stream abort support is legacy is being deprecated removed
+  - Remove AWS and Google Cloud packages for future refactoring [#2574](https://github.com/verdaccio/verdaccio/pull/2574).
+
+## 6.0.0-6-next.25
+
+### Patch Changes
+
+- a828a5f6: fix: #3174 set correctly ui values to html render
+
+## 6.0.0-6-next.24
+
+### Minor Changes
+
+- d43894e8: feat: rework web header for mobile, add new settings and raw manifest button
+
+  ### New set of variables to hide features
+
+  Add set of new variables that allow hide different parts of the UI, buttons, footer or download tarballs. _All are
+  enabled by default_.
+
+  ```yaml
+  # login: true <-- already exist but worth the reminder
+  # showInfo: true
+  # showSettings: true
+  # In combination with darkMode you can force specific theme
+  # showThemeSwitch: true
+  # showFooter: true
+  # showSearch: true
+  # showDownloadTarball: true
+  ```
+
+  > If you disable `showThemeSwitch` and force `darkMode: true` the local storage settings would be
+  > ignored and force all themes to the one in the configuration file.
+
+  Future could be extended to
+
+  ### Raw button to display manifest package
+
+  A new experimental feature (enabled by default), button named RAW to be able navigate on the package manifest directly on the ui, kudos to [react-json-view](https://www.npmjs.com/package/react-json-view) that allows an easy integration, not configurable yet until get more feedback.
+
+  ```yaml
+  showRaw: true
+  ```
+
+  #### Rework header buttons
+
+  - The header has been rework, the mobile was not looking broken.
+  - Removed info button in the header and moved to a dialog
+  - Info dialog now contains more information about the project, license and the aid content for Ukrania now is inside of the info modal.
+  - Separate settings and info to avoid collapse too much info (for mobile still need some work)
+
+## 6.0.0-6-next.23
+
+### Major Changes
+
+- 82cb0f2b: feat!: config.logs throw an error, logging config not longer accept array or logs property
+
+  ### 💥 Breaking change
+
+  This is valid
+
+  ```yaml
+  log: { type: stdout, format: pretty, level: http }
+  ```
+
+  This is invalid
+
+  ```yaml
+  logs: { type: stdout, format: pretty, level: http }
+  ```
+
+  or
+
+  ```yaml
+  logs:
+    - [{ type: stdout, format: pretty, level: http }]
+  ```
+
+### Minor Changes
+
+- 5167bb52: feat: ui search support for remote, local and private packages
+
+  The command `npm search` search globally and return all matches, with this improvement the user interface
+  is powered with the same capabilities.
+
+  The UI also tag where is the origin the package with a tag, also provide the latest version and description of the package.
+
+### Patch Changes
+
+- 5b390396: fix: fixes some style issues on mobile, particularly related to the Ukraine support message - [@s-h-a-d-o-w](https://github.com/s-h-a-d-o-w)
+
+## 6.0.0-6-next.22
+
+### Patch Changes
+
+- a2b69a08: add banner support ukraine
+
+## 6.0.0-6-next.21
+
+### Patch Changes
+
+- a179f1fd: show verdaccio logo in the footer even when custom brand is set
+
+## 6.0.0-6-next.20
+
+### Patch Changes
+
+- 635ca3f9: chore: force publish
+
+## 6.0.0-6-next.19
+
+### Patch Changes
+
+- aa0b2aa9: fix: replace ts icon by td and fix commonjs icon
+
+## 6.0.0-6-next.18
+
+### Patch Changes
+
+- df53f61c: feat: add types and package module icons on sidebar
+
+## 6.0.0-6-next.17
+
+### Patch Changes
+
+- c9089631: fix: specific version package detail page not showing
+
+## 6.0.0-6-next.16
+
+### Minor Changes
+
+- ad3151c3: fix: remove engines from ui-theme
+
+## 6.0.0-6-next.15
+
+### Minor Changes
+
+- 7ff4808b: feat: improve registry info dialog and language switch
+
+## 6.0.0-6-next.14
+
+### Minor Changes
+
+- 048ac95e: feat: align with v5 ui endpoints and ui small bugfix
+
+## 6.0.0-6-next.13
+
+### Major Changes
+
+- 000d4374: feat: upgrade to material ui 5
+
+## 6.0.0-6-next.12
+
+### Major Changes
+
+- 794af76c: Remove Node 12 support
+
+  - We need move to the new `undici` and does not support Node.js 12
+
+### Minor Changes
+
+- 154b2ecd: refactor: remove @verdaccio/commons-api in favor @verdaccio/core and remove duplications
+
+## 6.0.0-6-next.11
+
+### Minor Changes
+
+- 5fed1955: feat: integrate rematch for ui state storage
+
+## 6.0.0-6-next.10
+
+### Major Changes
+
+- 459b6fa7: refactor: search v1 endpoint and local-database
+
+  - refactor search `api v1` endpoint, improve performance
+  - remove usage of `async` dependency https://github.com/verdaccio/verdaccio/issues/1225
+  - refactor method storage class
+  - create new module `core` to reduce the ammount of modules with utilities
+  - use `undici` instead `node-fetch`
+  - use `fastify` instead `express` for functional test
+
+  ### Breaking changes
+
+  - plugin storage API changes
+  - remove old search endpoint (return 404)
+  - filter local private packages at plugin level
+
+  The storage api changes for methods `get`, `add`, `remove` as promise base. The `search` methods also changes and recieves a `query` object that contains all query params from the client.
+
+  ```ts
+  export interface IPluginStorage<T> extends IPlugin {
+    add(name: string): Promise<void>;
+    remove(name: string): Promise<void>;
+    get(): Promise<any>;
+    init(): Promise<void>;
+    getSecret(): Promise<string>;
+    setSecret(secret: string): Promise<any>;
+    getPackageStorage(packageInfo: string): IPackageStorage;
+    search(query: searchUtils.SearchQuery): Promise<searchUtils.SearchItem[]>;
+    saveToken(token: Token): Promise<any>;
+    deleteToken(user: string, tokenKey: string): Promise<any>;
+    readTokens(filter: TokenFilter): Promise<Token[]>;
+  }
+  ```
+
+## 6.0.0-6-next.9
+
+### Minor Changes
+
+- 67406082: upgrade to react@17 and other dependencies
+
+## 6.0.0-6-next.8
+
+### Minor Changes
+
+- 0da7031e: allow disable login on ui and endpoints
+
+  To be able disable the login, set `login: false`, anything else would enable login. This flag will disable access via UI and web endpoints.
+
+  ```yml
+  web:
+    title: verdaccio
+    login: false
+  ```
+
+## 6.0.0-6-next.7
+
+### Minor Changes
+
+- aecbd226: web: allow ui hide package managers on sidebar
+
+  If there is a package manager of preference over others, you can define the package managers to be displayed on the detail page and sidebar, just define in the `config.yaml` and web section the list of package managers to be displayed.
+
+  ```
+  web:
+    title: Verdaccio
+    sort_packages: asc
+    primary_color: #cccccc
+    pkgManagers:
+      - pnpm
+      - yarn
+      # - npm
+  ```
+
+  To disable all package managers, just define empty:
+
+  ```
+  web:
+    title: Verdaccio
+    sort_packages: asc
+    primary_color: #cccccc
+    pkgManagers:
+  ```
+
+  and the section would be hidden.
+
+## 6.0.0-6-next.6
+
+### Patch Changes
+
+- 648575aa: Bug Fixes
+
+  - fix escaped slash in namespaced packages
+
+  #### Related tickets
+
+  https://github.com/verdaccio/verdaccio/pull/2193
+
+## 5.0.0-alpha.5
+
+### Major Changes
+
+- e0b7c4ff: feat: flexible user interface generator
+
+  **breaking change**
+
+  The UI does not provide a pre-generated `index.html`, instead the server generates
+  the body of the web application based in few parameters:
+
+  - Webpack manifest
+  - User configuration details
+
+  It allows inject html tags, javascript and new CSS to make the page even more flexible.
+
+  ### Web new properties for dynamic template
+
+  The new set of properties are made in order allow inject _html_ and _JavaScript_ scripts within the template. This
+  might be useful for scenarios like Google Analytics scripts or custom html in any part of the body.
+
+  - metaScripts: html injected before close the `head` element.
+  - scriptsBodyAfter: html injected before close the `body` element.
+  - bodyAfter: html injected after _verdaccio_ JS scripts.
+
+  ```yaml
+  web:
+    scriptsBodyAfter:
+      - '<script type="text/javascript" src="https://my.company.com/customJS.min.js"></script>'
+    metaScripts:
+      - '<script type="text/javascript" src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>'
+      - '<script type="text/javascript" src="https://browser.sentry-cdn.com/5.15.5/bundle.min.js"></script>'
+      - '<meta name="robots" content="noindex" />'
+    bodyBefore:
+      - '<div id="myId">html before webpack scripts</div>'
+    bodyAfter:
+      - '<div id="myId">html after webpack scripts</div>'
+  ```
+
+  ### UI plugin changes
+
+  - `index.html` is not longer used, template is generated based on `manifest.json` generated by webpack.
+  - Plugin must export:
+    - the manifest file.
+    - the manifest files: matcher (array of id that generates required scripts to run the ui)
+    - static path: The absolute path where the files are located in `node_modules`
+
+  ```
+  exports.staticPath = path.join(__dirname, 'static');
+  exports.manifest = require('./static/manifest.json');
+  exports.manifestFiles = {
+    js: ['runtime.js', 'vendors.js', 'main.js'],
+    css: [],
+    ico: 'favicon.ico',
+  };
+  ```
+
+  - Remove font files
+  - CSS is inline on JS (this will help with #2046)
+
+  ### Docker v5 Examples
+
+  - Move all current examples to v4 folder
+  - Remove any v3 example
+  - Create v5 folder with Nginx Example
+
+  #### Related tickets
+
+  https://github.com/verdaccio/verdaccio/issues/1523
+  https://github.com/verdaccio/verdaccio/issues/1297
+  https://github.com/verdaccio/verdaccio/issues/1593
+  https://github.com/verdaccio/verdaccio/discussions/1539
+  https://github.com/verdaccio/website/issues/264
+  https://github.com/verdaccio/verdaccio/issues/1565
+  https://github.com/verdaccio/verdaccio/issues/1251
+  https://github.com/verdaccio/verdaccio/issues/2029
+  https://github.com/verdaccio/docker-examples/issues/29
+
+## 5.0.0-alpha.4
+
+### Patch Changes
+
+- fecbb9be: chore: add release step to private regisry on merge changeset pr
+
+## 5.0.0-alpha.3
+
+### Minor Changes
+
+- 54c58d1e: feat: add server rate limit protection to all request
+
+  To modify custom values, use the server settings property.
+
+  ```markdown
+  server:
+
+  ## https://www.npmjs.com/package/express-rate-limit#configuration-options
+
+  rateLimit:
+  windowMs: 1000
+  max: 10000
+  ```
+
+  The values are intended to be high, if you want to improve security of your server consider
+  using different values.
+
+## 5.0.0-alpha.2
+
+### Minor Changes
+
+- 6cb0b588: feat: ui theme plugin part of the application

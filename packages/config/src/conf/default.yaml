@@ -1,0 +1,316 @@
+#
+# This is the default configuration file. It allows all users to do anything,
+# please read carefully the documentation and best practices to
+# improve security.
+#
+# Look here for more config file examples:
+# https://github.com/verdaccio/verdaccio/blob/master/docker-examples/README.md
+#
+# Read about the best practices
+# https://verdaccio.org/docs/best
+
+# Path to a directory with all packages
+storage: ./storage
+
+# Path to a directory with plugins to include, the plugins folder has the higher priority for loading plugins
+# Disable this folder to avoid warnings if is not used
+# plugins: ./plugins
+
+# Web UI settings
+# https://verdaccio.org/docs/webui
+web:
+  title: Verdaccio
+  # Disable complete web UI
+  # enabled: false
+  # Custom colors for header background and font
+  # primaryColor: "#4b5e40"
+  # Custom logos and favicon
+  # logo: ./path/to/logo.png
+  # logoDark: ./path/to/logoDark.png
+  # favicon: ./path/to/favicon.ico
+  # Disable gravatar support
+  # gravatar: false
+  # By default, packages are ordered ascending
+  # sort_packages: asc | desc
+  # Convert your UI to the dark side
+  # darkMode: true
+  # html_cache: true
+  # By default, all features are displayed
+  # login: true
+  # showInfo: true
+  # showSettings: true
+  # In combination with darkMode you can force specific theme
+  # showThemeSwitch: true
+  # showFooter: true
+  # Replace the footer message with markdown: text, links and images (images from assetFolder
+  # are served under /-/assets/)
+  # footer: 'Need help? Read the [registry guide](https://verdaccio.org/docs/cli-registry)'
+  # Hide the "Powered by" link with false, or replace it with markdown (text, links, images)
+  # poweredBy: false
+  # Replace the welcome card shown while the registry is empty with markdown;
+  # {{registryUrl}} is replaced with the address of the registry
+  # help: |
+  #   ## Platform registry
+  #   Run `npm config set registry {{registryUrl}}`, then read the
+  #   [registry guide](https://verdaccio.org/docs/cli-registry).
+  # false hides the search box and disables the web search endpoint (npm search is not affected)
+  # showSearch: true
+  # showRaw: true
+  # showDownloadTarball: true
+  # Filter, scope and sort bar above the package list of the home page
+  # showPackageListToolbar: true
+  # showUplinks: true
+  # assetFolder: ./storage/assets
+  #
+  # HTML tags injected before ends </head>
+  # metaScripts:
+  #   - '<script type="text/javascript" src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>'
+  #   - '<script type="text/javascript" src="https://browser.sentry-cdn.com/5.15.5/bundle.min.js"></script>'
+  #   - '<meta name="robots" content="noindex">'
+  #
+  # HTML tags injected as first child in <body>
+  # scriptsBodyBefore:
+  #   - '<div id="myId">html before webpack scripts</div>'
+  #
+  # HTML tags injected as last child in </body>
+  # scriptsBodyAfter:
+  #   - '<script type="text/javascript" src="https://my.company.com/customJS.min.js"></script>'
+  #
+  # Public path for template manifest scripts (only manifest)
+  # publicPath: http://somedomain.org/
+
+# Settings for authentication plugin
+# https://verdaccio.org/docs/configuration#authentication
+auth:
+  htpasswd:
+    file: ./htpasswd
+    # Maximum amount of users allowed to register, defaults to "+inf".
+    # You can set this to -1 to disable registration.
+    # max_users: 1000
+    # Hash algorithm, possible options are: "bcrypt", "md5", "sha1", "crypt".
+    # algorithm: bcrypt # by default is crypt, but is recommended use bcrypt for new installations
+    # Rounds number for "bcrypt", will be ignored for other algorithms.
+    # rounds: 10
+
+# A list of other known repositories we can talk to
+# https://verdaccio.org/docs/configuration#uplinks
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+
+# Learn how to protect your packages
+# https://verdaccio.org/docs/protect-your-dependencies/
+# https://verdaccio.org/docs/configuration#packages
+packages:
+  '@*/*':
+    # scoped packages
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
+    proxy: npmjs
+
+  '**':
+    # allow all users (including non-authenticated users) to read and
+    # publish all packages
+    #
+    # you can specify usernames/groupnames (depending on your auth plugin)
+    # and three keywords: "$all", "$anonymous", "$authenticated"
+    access: $all
+
+    # allow all known users to publish/unpublish packages
+    # (anyone can register by default, remember?)
+    publish: $authenticated
+    unpublish: $authenticated
+
+    # if package is not available locally, proxy requests to 'npmjs' registry
+    proxy: npmjs
+
+# To improve your security configuration and avoid dependency confusion
+# consider removing the proxy property for private packages
+# https://verdaccio.org/docs/best#remove-proxy-to-increase-security-at-private-packages
+
+# https://verdaccio.org/docs/configuration#server
+# You can specify HTTP/1.1 server keep alive timeout in seconds for incoming connections.
+# A value of 0 makes the http server behave similarly to Node.js versions prior to 8.0.0, which did not have a keep-alive timeout.
+# WORKAROUND: Through given configuration you can workaround following issue https://github.com/verdaccio/verdaccio/issues/301. Set to 0 in case 60 is not enough.
+server:
+  keepAliveTimeout: 60
+  # Controls how requests with dotfile path segments (e.g. /.env, /.well-known/) are handled.
+  # 'deny' returns 403, 'ignore' returns 404 (default), 'allow' passes through.
+  dotfiles: ignore
+  # Hide static file requests (/-/static/*) from pino logs.
+  # They remain visible via DEBUG=verdaccio:middleware:log.
+  # hideStaticLogs: true
+  # Hide successful /-/ping requests from pino logs (health-check noise).
+  # Failed pings (status >= 400) are still logged.
+  # They remain visible via DEBUG=verdaccio:middleware:log.
+  # hidePingLogs: true
+  # The pluginPrefix replaces the default plugins prefix which is `verdaccio`. Please don't include `-`. If `something` is provided
+  # the resolved package will be `something-xxxx`.
+  # pluginPrefix: something
+  # A regex for the password validation /.{3}$/ (3 characters min)
+  # An example to limit to 10 characters minimum
+  # passwordValidationRegex: /.{10}$/
+  # Allow `req.ip` to resolve properly when Verdaccio is behind a proxy or load-balancer
+  # https://expressjs.com/en/guide/behind-proxies.html
+  # trustProxy: '127.0.0.1'
+  # Cache successful legacy (Bearer) auth token validations to reduce load on the
+  # auth backend (basic-auth requests are never cached). Disabled by default:
+  # while enabled, changed or revoked credentials stay valid until the cached
+  # entry expires (ttlMs). Enable only if you understand that trade-off.
+  # legacyAuthCache:
+  #   enabled: true
+  #   ttlMs: 30000      # how long a validation is cached, in ms (default 30s)
+  #   maxEntries: 1000  # max cached tokens before the oldest are evicted
+
+# https://verdaccio.org/docs/configuration#offline-publish
+# publish:
+#   allow_offline: false
+#   check_owners: false
+#   keep_readmes: 'latest' | 'tagged' | 'all'
+
+# Define public URL of registry in combination with VERDACCIO_PUBLIC_URL environment variable
+# https://verdaccio.org/docs/configuration#url-prefix
+# url_prefix: /verdaccio/
+#
+# Examples:
+# VERDACCIO_PUBLIC_URL='https://somedomain.org'
+# url_prefix: '/my_prefix'
+# // url -> https://somedomain.org/my_prefix/
+#
+# VERDACCIO_PUBLIC_URL='https://somedomain.org'
+# url_prefix: '/'
+# // url -> https://somedomain.org/
+#
+# VERDACCIO_PUBLIC_URL='https://somedomain.org/first_prefix'
+# url_prefix: '/second_prefix'
+# // url -> https://somedomain.org/second_prefix/
+
+# Security settings
+# https://verdaccio.org/docs/configuration#security
+# security:
+#   api:
+#     legacy: true
+#     basicLogin: true # accept Basic auth on the login endpoint only, set false to disable
+#     jwt:
+#       sign:
+#         expiresIn: 29d
+#       verify:
+#         someProp: [value]
+#   web:
+#     sign:
+#       expiresIn: 1h # 1 hour by default
+#     verify:
+#       someProp: [value]
+
+# https://verdaccio.org/docs/configuration#user-rate-limit
+# userRateLimit:
+#   windowMs: 50000
+#   max: 1000
+
+# https://verdaccio.org/docs/configuration#max-body-size
+# max_body_size: 10mb
+
+# https://verdaccio.org/docs/configuration#listen-port
+# listen:
+#   - localhost:4873            # default value
+#   - http://localhost:4873     # same thing
+#   - 0.0.0.0:4873              # listen on all addresses (INADDR_ANY)
+#   - https://example.org:4873  # if you want to use https
+#   - "[::1]:4873"              # ipv6
+#   - unix:/tmp/verdaccio.sock  # unix socket
+
+# The HTTPS configuration is useful if you do not consider use a HTTP Proxy
+# https://verdaccio.org/docs/configuration#https
+# https:
+#   key: ./path/verdaccio-key.pem
+#   cert: ./path/verdaccio-cert.pem
+#   ca: ./path/verdaccio-csr.pem
+
+# https://verdaccio.org/docs/configuration#proxy
+# http_proxy: http://something.local/
+# https_proxy: https://something.local/
+# no_proxy: localhost,127.0.0.1,server.local
+
+# https://verdaccio.org/docs/configuration#notifications
+# notify:
+#   method: 'POST' # methods available: POST, PUT, GET
+#   headers: '[{ "Content-Type": "application/json" }]'
+#   endpoint: 'https://usagge.hipchat.com/v2/room/3729485/notification?auth_token=mySecretToken'
+#   content: '{"color":"green","message":"New package published: * {{ name }}*","notify":true,"message_format":"text"}'
+
+# Settings for middleware plugins
+# https://verdaccio.org/docs/plugins#middleware-configuration
+middlewares:
+  audit:
+    enabled: true
+    # timeout: 10000
+
+# Settings for filter plugins
+# https://verdaccio.org/docs/configuration#filters
+filters:
+  '@verdaccio/package-filter':
+    # Block versions younger than N days
+    # minAgeDays: 30
+    # Block versions published after a specific date
+    # dateThreshold: '2024-01-01'
+    # Block specific packages, scopes, or version ranges
+    # block:
+    #   - scope: '@evilscope'
+    #   - package: 'malicious-pkg'
+    #   - package: 'some-pkg'
+    #     versions: '>=2.0.0'
+    # Allow exceptions to block rules
+    # allow:
+    #   - scope: '@trusted'
+    #   - package: 'some-pkg'
+    #     versions: '2.1.0'
+
+# Log settings
+# https://verdaccio.org/docs/logger
+# Redaction: https://getpino.io/#/docs/redaction
+# Synchronous logging: https://getpino.io/#/docs/asynchronous
+log:
+  type: stdout
+  format: pretty
+  level: http
+#  redact:
+#    paths: ['req.header.authorization','req.header.cookie','req.remoteAddress','req.remotePort','ip','remoteIP','user','msg']
+#    censor: '<redacted>'
+#  sync: true
+
+# Feature flags (experimental settings that can be changed or removed in the future)
+# https://verdaccio.org/docs/configuration#experiments
+# experiments:
+#  # Support for npm token command
+#  token: false
+#  # Enable tarball URL redirect for hosting tarball with a different server.
+#  # The tarball_url_redirect can be a template string
+#  tarball_url_redirect: 'https://mycdn.com/verdaccio/${packageName}/${filename}'
+#  # The tarball_url_redirect can be a function, takes packageName and filename and returns the url,
+#  # when working with a js configuration file
+#  tarball_url_redirect(packageName, filename) {
+#    const signedUrl = // generate a signed url
+#    return signedUrl;
+#  }
+# Renamed from "experiments" to "flags" in next major release
+# flags:
+#  changePassword: true
+#  # Staged publishing (`npm stage`). Versions are uploaded for review and only
+#  # become installable once a maintainer approves them.
+#  stage: false
+#  # Two-factor authentication (TOTP). Requires a storage plugin with token support.
+#  tfa: false
+#  # Serve the uplinks' signing keys and attestations so `npm audit signatures` works through the registry.
+#  signatures: false
+#  # Experimental: read tarballs in the background for dist.fileCount/unpackedSize
+#  # and per-version READMEs in the web UI.
+#  tarballMetadata: false
+# tarball_metadata:
+#  # tarballs above this size are never unpacked
+#  max_size_mb: 20
+
+# Translate your registry, API and web UI
+# List of the available translations https://github.com/verdaccio/verdaccio/blob/master/packages/ui-components/src/i18n/ABOUT_TRANSLATIONS.md
+i18n:
+  web: en-US

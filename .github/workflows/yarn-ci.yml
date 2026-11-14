@@ -1,0 +1,24 @@
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        required: true
+        type: string
+jobs:
+  ci:
+    name: Node ${{ inputs.node_version }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Use Node ${{ inputs.node_version }}
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: ${{ inputs.node_version }}
+    - name: Install
+      run: yarn install --immutable
+    - name: Build
+      run: yarn build
+    - name: Types
+      run: yarn code:types            
+    - name: Test
+      run: yarn test

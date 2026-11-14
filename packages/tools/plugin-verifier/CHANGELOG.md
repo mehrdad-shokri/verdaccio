@@ -1,0 +1,419 @@
+# @verdaccio/plugin-verifier
+
+## 1.0.0-next-9.40
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.44
+  - @verdaccio/logger@9.0.0-next-9.44
+  - @verdaccio/loaders@9.0.0-next-9.44
+
+## 1.0.0-next-9.39
+
+### Patch Changes
+
+- Updated dependencies [aeaf4d8]
+  - @verdaccio/core@9.0.0-next-9.43
+  - @verdaccio/loaders@9.0.0-next-9.43
+  - @verdaccio/logger@9.0.0-next-9.43
+
+## 1.0.0-next-9.38
+
+### Patch Changes
+
+- Updated dependencies [1d1ba47]
+  - @verdaccio/core@9.0.0-next-9.42
+  - @verdaccio/loaders@9.0.0-next-9.42
+  - @verdaccio/logger@9.0.0-next-9.42
+
+## 1.0.0-next-9.37
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.41
+  - @verdaccio/loaders@9.0.0-next-9.41
+  - @verdaccio/logger@9.0.0-next-9.41
+
+## 1.0.0-next-9.36
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.40
+  - @verdaccio/loaders@9.0.0-next-9.40
+  - @verdaccio/logger@9.0.0-next-9.40
+
+## 1.0.0-next-9.35
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.39
+  - @verdaccio/logger@9.0.0-next-9.39
+  - @verdaccio/loaders@9.0.0-next-9.39
+
+## 1.0.0-next-9.34
+
+### Patch Changes
+
+- @verdaccio/loaders@9.0.0-next-9.38
+  - @verdaccio/core@9.0.0-next-9.38
+  - @verdaccio/logger@9.0.0-next-9.38
+
+## 1.0.0-next-9.33
+
+### Patch Changes
+
+- Updated dependencies [4a483d0]
+- Updated dependencies [c2eafec]
+- Updated dependencies [8a6e1a1]
+  - @verdaccio/core@9.0.0-next-9.37
+  - @verdaccio/logger@9.0.0-next-9.37
+  - @verdaccio/loaders@9.0.0-next-9.37
+
+## 1.0.0-next-9.32
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.36
+  - @verdaccio/logger@9.0.0-next-9.36
+  - @verdaccio/loaders@9.0.0-next-9.36
+
+## 1.0.0-next-9.31
+
+### Patch Changes
+
+- Updated dependencies [1693358]
+  - @verdaccio/core@9.0.0-next-9.35
+  - @verdaccio/loaders@9.0.0-next-9.35
+  - @verdaccio/logger@9.0.0-next-9.35
+
+## 1.0.0-next-9.30
+
+### Patch Changes
+
+- 31e18e8: Align user registration with the authentication plugin callback contract.
+  
+  The htpasswd plugin's `adduser` method now returns `void` and reports registration
+  results and internal asynchronous errors through its callback. Registration retains
+  the checks performed after acquiring the file lock and releases the lock before
+  reporting completion, and invokes the callback exactly once even if the callback
+  itself throws.
+  
+  The htpasswd and in-memory plugins now consider only stored user entries, so
+  usernames such as `constructor` or `toString` can be registered and authenticated.
+  When htpasswd reloads its file, users removed from it are now forgotten: before,
+  a user deleted from the `.htpasswd` file could keep authenticating until Verdaccio
+  restarted. If reading the `.htpasswd` file fails after its lock is taken, the lock is
+  now released instead of blocking later registrations until it goes stale. When the
+  `.htpasswd` file does not exist yet, registration creates it before taking the lock, so
+  concurrent first registrations no longer lose a user that was reported as created.
+  
+  These htpasswd issues affect every published `verdaccio-htpasswd` up to
+  `14.0.0-next-9.33` (shipped by `verdaccio@9.0.0-next-9.33` and `7.0.0-next-7.29`) and
+  `13.1.3` (shipped by the stable `verdaccio@6.10.4`). This change fixes the next line;
+  the port to the stable 6.x line is pending.
+  
+  Authentication reports invalid plugin group results through the error callback,
+  checking the type before the length so values such as `{ length: 0 }` are rejected.
+  The plugin verifier also rejects native `async` implementations and non-function
+  values for `adduser` and legacy `add_user`, with a diagnostic explaining the callback
+  contract. This additional validation applies to the verifier, not the production
+  plugin loader.
+  
+  Plugin authors should keep registration methods callback-based, handle internal
+  asynchronous errors, and return `void`. The verifier does not invoke registration,
+  so ordinary functions that return promises still require tests in the plugin's own
+  suite. Registry configuration does not need to change.
+- Updated dependencies [83eb46c]
+- Updated dependencies [0cac607]
+- Updated dependencies [b6cc475]
+  - @verdaccio/core@9.0.0-next-9.34
+  - @verdaccio/loaders@9.0.0-next-9.34
+  - @verdaccio/logger@9.0.0-next-9.34
+
+## 1.0.0-next-9.29
+
+### Patch Changes
+
+- Updated dependencies [73c78e3]
+  - @verdaccio/logger@9.0.0-next-9.33
+  - @verdaccio/loaders@9.0.0-next-9.33
+  - @verdaccio/core@9.0.0-next-9.33
+
+## 1.0.0-next-9.28
+
+### Patch Changes
+
+- f3f8976: chore: replace \_\_dirname with import.meta.dirname
+- 46f4ff5: chore(tools): set rolldown platform for plugin-verifier
+- Updated dependencies [107c4d3]
+- Updated dependencies [3724054]
+- Updated dependencies [59f1350]
+- Updated dependencies [f3f8976]
+- Updated dependencies [89a7362]
+- Updated dependencies [3724054]
+- Updated dependencies [107c4d3]
+  - @verdaccio/logger@9.0.0-next-9.32
+  - @verdaccio/loaders@9.0.0-next-9.32
+  - @verdaccio/core@9.0.0-next-9.32
+
+## 1.0.0-next-9.27
+
+### Patch Changes
+
+- Updated dependencies [c2b5897]
+- Updated dependencies [68ab0d4]
+- Updated dependencies [c52b632]
+- Updated dependencies [7054084]
+- Updated dependencies [e3d3128]
+- Updated dependencies [cf15239]
+  - @verdaccio/core@9.0.0-next-9.31
+  - @verdaccio/loaders@9.0.0-next-9.31
+  - @verdaccio/logger@9.0.0-next-9.31
+
+## 1.0.0-next-9.26
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.30
+- @verdaccio/loaders@9.0.0-next-9.30
+- @verdaccio/logger@9.0.0-next-9.30
+
+## 1.0.0-next-9.25
+
+### Patch Changes
+
+- Updated dependencies [30601b3]
+  - @verdaccio/core@9.0.0-next-9.29
+  - @verdaccio/logger@9.0.0-next-9.29
+  - @verdaccio/loaders@9.0.0-next-9.29
+
+## 1.0.0-next-9.24
+
+### Patch Changes
+
+- Updated dependencies [dd4f91c]
+  - @verdaccio/core@9.0.0-next-9.28
+  - @verdaccio/loaders@9.0.0-next-9.28
+  - @verdaccio/logger@9.0.0-next-9.28
+
+## 1.0.0-next-9.23
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.27
+- @verdaccio/loaders@9.0.0-next-9.27
+- @verdaccio/logger@9.0.0-next-9.27
+
+## 1.0.0-next-9.22
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.26
+- @verdaccio/loaders@9.0.0-next-9.26
+- @verdaccio/logger@9.0.0-next-9.26
+
+## 1.0.0-next-9.21
+
+### Patch Changes
+
+- @verdaccio/loaders@9.0.0-next-9.25
+- @verdaccio/core@9.0.0-next-9.25
+- @verdaccio/logger@9.0.0-next-9.25
+
+## 1.0.0-next-9.20
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.24
+- @verdaccio/loaders@9.0.0-next-9.24
+- @verdaccio/logger@9.0.0-next-9.24
+
+## 1.0.0-next-9.19
+
+### Patch Changes
+
+- Updated dependencies [5ec045c]
+  - @verdaccio/core@9.0.0-next-9.23
+  - @verdaccio/loaders@9.0.0-next-9.23
+  - @verdaccio/logger@9.0.0-next-9.23
+
+## 1.0.0-next-9.18
+
+### Patch Changes
+
+- Updated dependencies [d3b0352]
+- Updated dependencies [c499c4e]
+  - @verdaccio/loaders@9.0.0-next-9.22
+  - @verdaccio/logger@9.0.0-next-9.22
+  - @verdaccio/core@9.0.0-next-9.22
+
+## 1.0.0-next-9.17
+
+### Patch Changes
+
+- Updated dependencies [5aa8cca]
+  - @verdaccio/core@9.0.0-next-9.21
+  - @verdaccio/loaders@9.0.0-next-9.21
+  - @verdaccio/logger@9.0.0-next-9.21
+
+## 1.0.0-next-9.16
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.20
+- @verdaccio/logger@9.0.0-next-9.20
+- @verdaccio/loaders@9.0.0-next-9.20
+
+## 1.0.0-next-9.15
+
+### Patch Changes
+
+- 47f122f: chore(deps): clean-up unused and duplicates
+- Updated dependencies [47f122f]
+  - @verdaccio/core@9.0.0-next-9.19
+  - @verdaccio/loaders@9.0.0-next-9.19
+  - @verdaccio/logger@9.0.0-next-9.19
+
+## 1.0.0-next-9.14
+
+### Patch Changes
+
+- Updated dependencies [62ebd31]
+- Updated dependencies [e8421bd]
+- Updated dependencies [d9203d0]
+- Updated dependencies [95c4441]
+- Updated dependencies [73c78e3]
+  - @verdaccio/core@9.0.0-next-9.18
+  - @verdaccio/loaders@9.0.0-next-9.18
+  - @verdaccio/logger@9.0.0-next-9.18
+
+## 1.0.0-next-9.13
+
+### Patch Changes
+
+- 6408a85: chore: force release
+- Updated dependencies [6408a85]
+  - @verdaccio/core@9.0.0-next-9.17
+  - @verdaccio/loaders@9.0.0-next-9.17
+  - @verdaccio/logger@9.0.0-next-9.17
+
+## 1.0.0-next-9.12
+
+### Patch Changes
+
+- Updated dependencies [66f7e61]
+- Updated dependencies [cdf3150]
+  - @verdaccio/core@9.0.0-next-9.16
+  - @verdaccio/logger@9.0.0-next-9.16
+  - @verdaccio/loaders@9.0.0-next-9.16
+
+## 1.0.0-next-9.11
+
+### Patch Changes
+
+- @verdaccio/loaders@9.0.0-next-9.15
+- @verdaccio/core@9.0.0-next-9.15
+- @verdaccio/logger@9.0.0-next-9.15
+
+## 1.0.0-next-9.10
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.14
+- @verdaccio/loaders@9.0.0-next-9.14
+- @verdaccio/logger@9.0.0-next-9.14
+
+## 1.0.0-next-9.9
+
+### Patch Changes
+
+- Updated dependencies [39c369e]
+  - @verdaccio/core@9.0.0-next-9.13
+  - @verdaccio/loaders@9.0.0-next-9.13
+  - @verdaccio/logger@9.0.0-next-9.13
+
+## 1.0.0-next-9.8
+
+### Patch Changes
+
+- @verdaccio/loaders@9.0.0-next-9.12
+- @verdaccio/core@9.0.0-next-9.12
+- @verdaccio/logger@9.0.0-next-9.12
+
+## 1.0.0-next-9.7
+
+### Patch Changes
+
+- @verdaccio/loaders@9.0.0-next-9.11
+- @verdaccio/core@9.0.0-next-9.11
+- @verdaccio/logger@9.0.0-next-9.11
+
+## 1.0.0-next-9.6
+
+### Patch Changes
+
+- @verdaccio/loaders@9.0.0-next-9.10
+- @verdaccio/core@9.0.0-next-9.10
+- @verdaccio/logger@9.0.0-next-9.10
+
+## 1.0.0-next-9.5
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.9
+- @verdaccio/loaders@9.0.0-next-9.9
+- @verdaccio/logger@9.0.0-next-9.9
+
+## 1.0.0-next-9.4
+
+### Patch Changes
+
+- Updated dependencies [d68a86d]
+  - @verdaccio/loaders@9.0.0-next-9.8
+  - @verdaccio/core@9.0.0-next-9.8
+  - @verdaccio/logger@9.0.0-next-9.8
+
+## 1.0.0-next-9.3
+
+### Patch Changes
+
+- @verdaccio/loaders@9.0.0-next-9.7
+- @verdaccio/core@9.0.0-next-9.7
+- @verdaccio/logger@9.0.0-next-9.7
+
+## 1.0.0-next-9.2
+
+### Patch Changes
+
+- 9d5360b: chore: vite replace rollupOptions with rolldownOptions
+- Updated dependencies [1905990]
+  - @verdaccio/core@9.0.0-next-9.6
+  - @verdaccio/logger@9.0.0-next-9.6
+  - @verdaccio/loaders@9.0.0-next-9.6
+
+## 1.0.0-next-9.1
+
+### Minor Changes
+
+- a9d7b4a: feat: add @verdaccio/plugin-verifier tool package
+
+  - feat(plugin-verifier): new package to verify that a Verdaccio plugin can be loaded, instantiated, and passes sanity checks — uses `asyncLoadPlugin` from `@verdaccio/loaders` (the same loader Verdaccio runs at startup)
+  - feat(plugin-verifier): CLI built with clipanion (`verdaccio-plugin-verifier <plugin> --category <category>`)
+  - feat(plugin-verifier): programmatic API for use in plugin test suites
+  - feat(plugin-verifier): step-by-step diagnostics on failure (resolve, export, instantiate, sanity-check) with actionable error messages
+  - feat(core): add shared sanity check functions (`authSanityCheck`, `storageSanityCheck`, `middlewareSanityCheck`, `filterSanityCheck`) to `pluginUtils` in `@verdaccio/core`
+  - feat(loaders): add ESM plugin support — `tryLoadAsync` falls back from `require()` to dynamic `import()` when loading ESM plugins
+  - refactor(auth,store,server): replace inline sanity check callbacks with shared functions from `@verdaccio/core`
+  - fix(core): replace removed `pseudoRandomBytes` with `randomBytes` for Node.js 24 compatibility
+  - fix(core): fix `process-warning` ESM interop — use default import instead of named imports for CJS compatibility
+
+### Patch Changes
+
+- Updated dependencies [4eda7ac]
+- Updated dependencies [8f9bcc8]
+- Updated dependencies [a9d7b4a]
+- Updated dependencies [1d5462f]
+- Updated dependencies [fd09d4f]
+  - @verdaccio/logger@9.0.0-next-9.5
+  - @verdaccio/core@9.0.0-next-9.5
+  - @verdaccio/loaders@9.0.0-next-9.5

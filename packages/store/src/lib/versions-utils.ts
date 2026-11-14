@@ -1,0 +1,138 @@
+import buildDebug from 'debug';
+import { isNil } from 'lodash-es';
+import type { SemVer } from 'semver';
+import semver from 'semver';
+
+import type { searchUtils } from '@verdaccio/core';
+import { DIST_TAGS, pkgUtils } from '@verdaccio/core';
+import type { Manifest, StringValue, Version, Versions } from '@verdaccio/types';
+
+const debug = buildDebug('verdaccio:storage:utils');
+
+/**
+ * Gets version from a package object taking into account semver weirdness.
+ * @return {String} return the semantic version of a package
+ */
+export function getVersion(versions: Versions, version: string): Version | undefined {
+  if (!versions) {
+    return;
+  }
+
+  // this condition must allow cast
+  if (Object.hasOwn(versions, version) && isNil(versions[version]) === false) {
+    return versions[version];
+  }
+
+  const versionSemver: SemVer | null = semver.parse(version, true);
+  if (versionSemver === null) {
+    return;
+  }
+
+  for (const versionItem in versions) {
+    if (Object.prototype.hasOwnProperty.call(versions, versionItem)) {
+      // @ts-ignore
+      if (versionSemver.compare(semver.parse(versionItem, true)) === 0) {
+        return versions[versionItem];
+      }
+    }
+  }
+}
+
+/**
+ * Function filters out bad semver versions and sorts the array.
+ * @return {Array} sorted Array
+ */
+export function sortVersionsAndFilterInvalid(listVersions: string[] /* logger */): string[] {
+  return listVersions
+    .filter(function (version): boolean {
+      if (!semver.parse(version, true)) {
+        return false;
+      }
+      return true;
+    })
+    .sort(semver.compareLoose)
+    .map(String);
+}
+
+/**
+ * Create a tag for a package
+ * @param {*} data
+ * @param {*} version
+ * @param {*} tag
+ * @return {Boolean} whether a package has been tagged
+ * @deprecated
+ */
+export function tagVersion(data: Manifest, version: string, tag: StringValue): boolean {
+  if (tag && data[DIST_TAGS][tag] !== version && semver.parse(version, true)) {
+    // valid version - store
+    data[DIST_TAGS][tag] = version;
+    return true;
+  }
+  return false;
+}
+
+/**
+ *
+ * @param manifest
+ * @param version
+ * @param tag
+ * @returns
+ */
+export function tagVersionNext(manifest: Manifest, version: string, tag: StringValue): Manifest {
+  const data = { ...manifest };
+  if (tag && data[DIST_TAGS][tag] !== version && semver.parse(version, true)) {
+    // valid version - store
+    data[DIST_TAGS][tag] = version;
+  }
+  return data;
+}
+
+/**
+ * Whether `newVersion` is strictly newer than `oldVersion` under loose semver.
+ * Equal versions in any spelling (`1.2.3`, `v1.2.3`, `01.2.3`, `1.2.3+build`) are
+ * not newer, so search merges keep the entry they saw first, which is the local one.
+ * Both arguments must already pass `pkgUtils.isValidVersion`.
+ */
+export function isNewerVersion(newVersion: string, oldVersion: string): boolean {
+  return semver.compareLoose(newVersion, oldVersion) === 1;
+}
+
+/**
+ * Remove duplicates from search results.
+ * @param {Array} objects
+ * @return {Array} filtered array
+ */
+export function removeLowerVersions(objects: searchUtils.SearchPackageItem[]) {
+  const versionMap = new Map();
+  const validObjects = objects.filter((item) => {
+    const version = item?.package?.version;
+    const valid = pkgUtils.isValidVersion(version);
+    if (!valid) debug('ignoring invalid search version %o', version);
+    return valid;
+  });
+
+  // Iterate through the array and keep the highest version for each name
+  validObjects.forEach((item) => {
+    const { name, version } = item.package;
+    const key = name;
+
+    if (versionMap.has(name) === false || isNewerVersion(version, versionMap.get(name))) {
+      debug('keeping %o@%o', name, version);
+      versionMap.set(key, version);
+    }
+  });
+
+  // Filter objects based on the version map
+  return validObjects.reduce((acc, item) => {
+    const { name, version } = item.package;
+    if (
+      versionMap.has(name) &&
+      versionMap.get(name) === version &&
+      acc.find((i) => i.package.name === name) === undefined
+    ) {
+      debug('adding %o@%o', name, version);
+      acc.push(item);
+    }
+    return acc;
+  }, [] as searchUtils.SearchPackageItem[]);
+}

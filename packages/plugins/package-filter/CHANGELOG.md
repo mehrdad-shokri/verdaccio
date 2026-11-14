@@ -1,0 +1,304 @@
+# Change Log
+
+## 14.0.0-next-9.68
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.44
+
+## 14.0.0-next-9.67
+
+### Patch Changes
+
+- Updated dependencies [aeaf4d8]
+  - @verdaccio/core@9.0.0-next-9.43
+
+## 14.0.0-next-9.66
+
+### Patch Changes
+
+- 1d1ba47: Fix HTTP 500 responses for package requests when an installation forces minimatch 11. The access-rule matcher called the removed `makeRe` API. Use the supported matching API while retaining case-insensitive package access rules and first-match precedence.
+  
+  On the master and 7.x release lines, affected `@verdaccio/core` releases are `9.0.0-next-9.0` through `9.0.0-next-9.41`. Verdaccio releases using these modules include `9.0.0-next-9.0` through `9.0.0-next-9.41` and stable releases `7.0.0` through `7.0.2`. The affected 7.x prereleases using these modules are `7.0.0-beta.4`, `7.0.0-beta.6`, and `7.0.0-next-7.21` through `7.0.0-next-7.32`.
+  
+  The failure requires an override or resolution that replaces the declared minimatch dependency with version 11; default installations of those releases are not affected. Upgrade to a Verdaccio release containing the corrected core module before forcing minimatch 11.
+  
+  Update the package filter's direct minimatch dependency as well. Existing package access and filter configuration does not need to change.
+- Updated dependencies [1d1ba47]
+  - @verdaccio/core@9.0.0-next-9.42
+
+## 14.0.0-next-9.65
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.41
+
+## 14.0.0-next-9.64
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.40
+
+## 14.0.0-next-9.63
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.39
+
+## 14.0.0-next-9.62
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.38
+
+## 14.0.0-next-9.61
+
+### Patch Changes
+
+- Updated dependencies [4a483d0]
+- Updated dependencies [c2eafec]
+- Updated dependencies [8a6e1a1]
+  - @verdaccio/core@9.0.0-next-9.37
+
+## 14.0.0-next-9.60
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.36
+
+## 14.0.0-next-9.59
+
+### Patch Changes
+
+- Updated dependencies [1693358]
+  - @verdaccio/core@9.0.0-next-9.35
+
+## 14.0.0-next-9.58
+
+### Patch Changes
+
+- Updated dependencies [83eb46c]
+- Updated dependencies [0cac607]
+- Updated dependencies [b6cc475]
+  - @verdaccio/core@9.0.0-next-9.34
+
+## 14.0.0-next-9.57
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.33
+
+## 14.0.0-next-9.56
+
+### Minor Changes
+
+- 6ce6075: Add glob pattern support for package filter allow and block rules.
+
+### Patch Changes
+
+- 1ed4074: fix(package-filter): flaky test
+- Updated dependencies [59f1350]
+  - @verdaccio/core@9.0.0-next-9.32
+
+## 14.0.0-next-9.55
+
+### Patch Changes
+
+- Updated dependencies [c2b5897]
+- Updated dependencies [68ab0d4]
+- Updated dependencies [c52b632]
+- Updated dependencies [7054084]
+- Updated dependencies [cf15239]
+  - @verdaccio/core@9.0.0-next-9.31
+
+## 14.0.0-next-9.54
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.30
+
+## 14.0.0-next-9.53
+
+### Patch Changes
+
+- Updated dependencies [30601b3]
+  - @verdaccio/core@9.0.0-next-9.29
+
+## 14.0.0-next-9.52
+
+### Patch Changes
+
+- Updated dependencies [dd4f91c]
+  - @verdaccio/core@9.0.0-next-9.28
+
+## 14.0.0-next-9.51
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.27
+
+## 14.0.0-next-9.50
+
+### Patch Changes
+
+- 7aea4de: perf(package-filter): skip manifest cleanup when no filter changes a package
+  - @verdaccio/core@9.0.0-next-9.26
+
+## 14.0.0-next-9.49
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.25
+
+## 14.0.0-next-9.48
+
+### Minor Changes
+
+- f86df64: Added `excludeDeprecated` config filter option. It filters deprecated package versions. By default the feature is disabled.
+  The option is enabled by:
+
+  ```yaml
+  filters:
+    "@verdaccio/package-filter":
+      excludeDeprecated: true
+  ```
+
+  This way Verdaccio will filter out package versions that are marked as "deprecated" (unless they are allow-listed).
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.24
+
+## 14.0.0-next-9.47
+
+### Patch Changes
+
+- Updated dependencies [5ec045c]
+  - @verdaccio/core@9.0.0-next-9.23
+
+## 14.0.0-next-9.46
+
+### Patch Changes
+
+- Updated dependencies [c499c4e]
+  - @verdaccio/core@9.0.0-next-9.22
+
+## 14.0.0-next-9.45
+
+### Patch Changes
+
+- Updated dependencies [5aa8cca]
+  - @verdaccio/core@9.0.0-next-9.21
+
+## 14.0.0-next-9.44
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.20
+
+## 14.0.0-next-9.43
+
+### Patch Changes
+
+- 47f122f: chore(deps): clean-up unused and duplicates
+- Updated dependencies [47f122f]
+  - @verdaccio/core@9.0.0-next-9.19
+
+## 14.0.0-next-9.42
+
+### Patch Changes
+
+- Updated dependencies [62ebd31]
+- Updated dependencies [e8421bd]
+- Updated dependencies [d9203d0]
+  - @verdaccio/core@9.0.0-next-9.18
+
+## 14.0.0-next-9.41
+
+### Patch Changes
+
+- 6408a85: chore: force release
+- Updated dependencies [6408a85]
+  - @verdaccio/core@9.0.0-next-9.17
+
+## 14.0.0-next-9.40
+
+### Patch Changes
+
+- Updated dependencies [66f7e61]
+- Updated dependencies [cdf3150]
+  - @verdaccio/core@9.0.0-next-9.16
+
+## 14.0.0-next-9.39
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.15
+
+## 14.0.0-next-9.38
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.14
+
+## 14.0.0-next-9.37
+
+### Patch Changes
+
+- Updated dependencies [39c369e]
+  - @verdaccio/core@9.0.0-next-9.13
+
+## 14.0.0-next-9.36
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.12
+
+## 14.0.0-next-9.35
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.11
+
+## 14.0.0-next-9.34
+
+### Patch Changes
+
+- f777142: fix(package-filter): fix O(n²) complexity in cleanupDistFiles
+  - @verdaccio/core@9.0.0-next-9.10
+
+## 14.0.0-next-9.33
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.9
+
+## 14.0.0-next-9.32
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.8
+
+## 14.0.0-next-9.31
+
+### Patch Changes
+
+- @verdaccio/core@9.0.0-next-9.7
+
+## 14.0.0-next-9.30
+
+### Patch Changes
+
+- 8fb8763: - Add @verdaccio/package-filter plugin.
+  - Fix filter plugin invocations in Storage.
+    - Fix local manifest not filtered when no uplinks configured (e.g. they were removed at some point).
+    - Fix only one filter plugin is applied (last).
+- Updated dependencies [1905990]
+  - @verdaccio/core@9.0.0-next-9.6
+
+## 13.0.0-next-8.28
+
+### Patch Changes
+
+- Plugin moved to Verdaccio monorepo.
+  Previously it was hosted independently as verdaccio-plugin-delay-filter package.

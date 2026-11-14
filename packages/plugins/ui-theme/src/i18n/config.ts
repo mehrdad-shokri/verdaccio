@@ -1,0 +1,42 @@
+import i18n from 'i18next';
+import { initReactI18next } from 'react-i18next';
+
+import { loadTranslationFile } from '@verdaccio/ui-components';
+
+import type { LanguageConfiguration } from './enabledLanguages';
+import { DEFAULT_LANGUAGE, listLanguages, listLanguagesAsString } from './enabledLanguages';
+
+const languages = listLanguages.reduce((acc, item: LanguageConfiguration) => {
+  acc[item.lng] = {
+    translation:
+      item.lng === DEFAULT_LANGUAGE
+        ? loadTranslationFile(DEFAULT_LANGUAGE)
+        : loadTranslationFile(item.lng),
+  };
+  return acc;
+}, {});
+
+i18n
+  // pass the i18n instance to react-i18next.
+  .use(initReactI18next)
+  // init i18next
+  // for all options read: https://www.i18next.com/overview/configuration-options
+  .init({
+    // in case window.VEDACCIO_LANGUAGE is undefined,it will fall back to 'en-US'
+    lng: (window as any)?.__VERDACCIO_BASENAME_UI_OPTIONS?.language || DEFAULT_LANGUAGE,
+    fallbackLng: DEFAULT_LANGUAGE,
+    // Crowdin can export untranslated strings as "", which must fall back to English too
+    returnEmptyString: false,
+    supportedLngs: [...listLanguagesAsString],
+    load: 'currentOnly',
+    react: {
+      useSuspense: false,
+    },
+    resources: languages,
+    debug: false,
+    interpolation: {
+      escapeValue: false, // react already safes from xss
+    },
+  });
+
+export default i18n;

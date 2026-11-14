@@ -1,0 +1,212 @@
+import SearchMui from '@mui/icons-material/Search';
+import type { AutocompleteRenderGroupParams } from '@mui/material/Autocomplete';
+import ListSubheader from '@mui/material/ListSubheader';
+import { debounce } from 'lodash-es';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router';
+
+import { useConfig, useSearch } from '../../';
+import { Route } from '../../utils';
+import AutoComplete from './AutoComplete';
+import SearchItem, { ORIGIN_ICONS } from './SearchItem';
+import { StyledInputAdornment, StyledTextField } from './styles';
+import type { SearchOrigin } from './utils';
+import { normalizeSearchOption, sortByOrigin } from './utils';
+
+const CONSTANTS = {
+  API_DELAY: 300,
+  ABORT_ERROR: 'AbortError',
+};
+
+const Search: React.FC = () => {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { searchResults, isLoading, isError, doSearch, resetSearch } = useSearch();
+  const { configOptions } = useConfig();
+  const groupByOrigin = configOptions?.showUplinks === true;
+  const suggestions = useMemo(
+    () => (groupByOrigin && searchResults ? sortByOrigin(searchResults) : searchResults),
+    [groupByOrigin, searchResults]
+  );
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const cancelAllSearchRequests = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }, []);
+
+  const handleOnBlur = useCallback(
+    (event: React.SyntheticEvent) => {
+      event.stopPropagation();
+      cancelAllSearchRequests();
+    },
+    [cancelAllSearchRequests]
+  );
+
+  const handleClickSearch = useCallback(
+    (event: React.SyntheticEvent, value: any, reason: string): void => {
+      event.stopPropagation();
+      if (reason === 'selectOption') {
+        const { name } = normalizeSearchOption(value);
+        if (name) {
+          navigate(`${Route.DETAIL}${name}`);
+        }
+      }
+    },
+    [navigate]
+  );
+
+  // Use a ref to always access the latest doSearch without re-creating the debounced function
+  const doSearchRef = useRef(doSearch);
+  doSearchRef.current = doSearch;
+
+  // shows the dropdown as loading during the debounce window; without it the
+  // immediate reset below reads as "no results found" on every keystroke
+  const [isDebouncing, setIsDebouncing] = useState(false);
+
+  /**
+   * Stable fetch function that reads the latest doSearch from a ref,
+   * avoiding dependency changes that would break the debounce.
+   */
+  const handleFetchPackages = useCallback(
+    async ({ value }: { value: string }) => {
+      setIsDebouncing(false);
+      if (value?.trim() !== '') {
+        // Abort any previous pending request before starting a new one
+        cancelAllSearchRequests();
+
+        // Create a new controller for the current request
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
+        try {
+          await doSearchRef.current?.({
+            text: value,
+            signal: controller.signal,
+          });
+        } catch (err: any) {
+          if (err.name === CONSTANTS.ABORT_ERROR) {
+            console.warn('Search request aborted');
+          } else {
+            console.error('Search error:', err);
+          }
+        }
+      }
+    },
+    [cancelAllSearchRequests]
+  );
+
+  // Memoize the debounced function so a single instance is reused across renders,
+  // ensuring the debounce timer works correctly instead of creating a new timer per render.
+  const debouncedFetch = useMemo(
+    () => debounce(handleFetchPackages, CONSTANTS.API_DELAY),
+    [handleFetchPackages]
+  );
+
+  // clear the previous query's results right away so the dropdown never lists
+  // stale suggestions under the new input while the debounce timer runs
+  const handleSuggestionsFetch = useCallback(
+    ({ value }: { value: string }) => {
+      resetSearch?.();
+      if (value?.trim() !== '') {
+        setIsDebouncing(true);
+      }
+      debouncedFetch({ value });
+    },
+    [resetSearch, debouncedFetch]
+  );
+
+  useEffect(() => {
+    return () => {
+      debouncedFetch.cancel?.();
+      cancelAllSearchRequests();
+    };
+  }, [debouncedFetch, cancelAllSearchRequests]);
+
+  const renderOption = (props, option) => {
+    const { key, ...otherProps } = props;
+    const { name, version, description, isPrivate, isCached, isRemote } =
+      normalizeSearchOption(option);
+    return (
+      <SearchItem
+        key={key}
+        {...otherProps}
+        description={description}
+        isCached={isCached}
+        isPrivate={isPrivate}
+        isRemote={isRemote}
+        name={name}
+        version={version}
+      />
+    );
+  };
+
+  const renderInput = (params) => {
+    return (
+      <StyledTextField
+        {...params}
+        InputProps={{
+          ...params.InputProps,
+          startAdornment: (
+            <StyledInputAdornment position="start">
+              <SearchMui />
+            </StyledInputAdornment>
+          ),
+        }}
+        label=""
+        placeholder={t('search.packages')}
+        variant="standard"
+      />
+    );
+  };
+
+  const getOptionGroup = (option) => normalizeSearchOption(option).origin ?? '';
+
+  const renderGroup = ({ key, group, children }: AutocompleteRenderGroupParams) => {
+    if (!group) {
+      return <React.Fragment key={key}>{children}</React.Fragment>;
+    }
+    const OriginIcon = ORIGIN_ICONS[group as SearchOrigin];
+    return (
+      <li key={key}>
+        {/* a div: the default <li> would nest a list item inside the group's <li> */}
+        <ListSubheader
+          component="div"
+          data-testid={`search-group-${group}`}
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, lineHeight: '36px' }}
+        >
+          {OriginIcon && <OriginIcon fontSize="small" />}
+          {t(`search.group.${group}`, { count: React.Children.count(children) })}
+        </ListSubheader>
+        <ul style={{ padding: 0 }}>{children}</ul>
+      </li>
+    );
+  };
+
+  const getOptionLabel = (option) => {
+    return normalizeSearchOption(option).name;
+  };
+
+  return (
+    <AutoComplete
+      getOptionLabel={getOptionLabel}
+      groupBy={groupByOrigin ? getOptionGroup : undefined}
+      hasError={isError}
+      onCleanSuggestions={handleOnBlur}
+      onSelectItem={handleClickSearch}
+      onSuggestionsFetch={handleSuggestionsFetch}
+      placeholder={t('search.packages')}
+      renderGroup={groupByOrigin ? renderGroup : undefined}
+      renderInput={renderInput}
+      renderOption={renderOption}
+      suggestions={suggestions}
+      suggestionsLoading={isLoading || isDebouncing}
+    />
+  );
+};
+
+export default Search;

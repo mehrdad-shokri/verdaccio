@@ -1,0 +1,77 @@
+import Paper from '@mui/material/Paper';
+import React from 'react';
+
+import ActionBar from '../../components/ActionBar';
+import Author from '../../components/Author';
+import Developers, { DeveloperType } from '../../components/Developers';
+import Dist from '../../components/Distribution';
+import Engines from '../../components/Engines';
+import FundButton from '../../components/FundButton';
+import Install from '../../components/Install';
+import Keywords from '../../components/Keywords';
+import Provenance from '../../components/Provenance';
+import Repository from '../../components/Repository';
+import SideBarTitle from '../../components/SideBarTitle';
+import { DownloadProvider, useConfig, useVersion } from '../../providers';
+import type { ModuleType, PackageMetaInterface } from '../../types/packageMeta';
+
+const getModuleTypes = (manifest: PackageMetaInterface) => {
+  if (!manifest.latest) return [];
+
+  const moduleTypes: ModuleType[] = [manifest.latest.type || 'commonjs'];
+
+  if (manifest.latest.main) {
+    moduleTypes.push('commonjs');
+  }
+
+  return Array.from(new Set(moduleTypes));
+};
+
+const DetailSidebar: React.FC = () => {
+  const { packageMeta, packageName, packageVersion } = useVersion();
+
+  const { configOptions } = useConfig();
+  const version = packageVersion || packageMeta?.latest.version || '';
+  const time = packageMeta?.time ? packageMeta.time[version] : '';
+  if (!packageMeta || !packageName) {
+    return null;
+  }
+
+  return (
+    <Paper data-testid="sidebar" sx={{ position: 'sticky', top: 0, p: 2, ml: { xs: 0, md: 2 } }}>
+      <SideBarTitle
+        description={packageMeta.latest?.description}
+        hasTypes={typeof packageMeta.latest?.types === 'string'}
+        isLatest={typeof packageVersion === 'undefined'}
+        moduleTypes={getModuleTypes(packageMeta)}
+        packageName={packageName}
+        time={time}
+        version={version}
+      />
+      <DownloadProvider>
+        <ActionBar
+          packageMeta={packageMeta}
+          showDownloadTarball={configOptions.showDownloadTarball}
+          showRaw={configOptions.showRaw}
+        />
+      </DownloadProvider>
+      <FundButton packageMeta={packageMeta} />
+      <Install configOptions={configOptions} packageMeta={packageMeta} packageName={packageName} />
+      <Repository packageMeta={packageMeta} />
+      <Engines packageMeta={packageMeta} />
+      <Dist packageMeta={packageMeta} />
+      <Provenance
+        packageMeta={packageMeta}
+        packageName={packageName}
+        showDetails={configOptions.capabilities?.provenance === true}
+        version={packageVersion}
+      />
+      <Keywords packageMeta={packageMeta} />
+      <Author packageMeta={packageMeta} />
+      <Developers packageMeta={packageMeta} type={DeveloperType.MAINTAINERS} />
+      <Developers packageMeta={packageMeta} type={DeveloperType.CONTRIBUTORS} />
+    </Paper>
+  );
+};
+
+export default DetailSidebar;

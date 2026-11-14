@@ -1,0 +1,4 @@
+# require('verdaccio-plugin') in test-plugin-storage folder
+auth:
+  plugin:
+    enabled: true

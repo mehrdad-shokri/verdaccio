@@ -1,0 +1,29 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "sourceMap": true,
+    "preserveSymlinks": true,
+    "rootDir": "./src",
+    "outDir": "./build",
+    "skipLibCheck": true,
+    "jsx": "react",
+    "types": ["node"]
+  },
+  "include": ["src/**/*"],
+  "exclude": [
+    "src/**/*.stories.tsx",
+    "src/**/__stories__/**",
+    "src/**/*.test.tsx",
+    "src/**/*.test.ts",
+    "src/test/**"
+  ],
+  "typedocOptions": {
+    "categoryOrder": ["Model", "Component", "Provider", "*"],
+    "defaultCategory": "Component",
+    "categorizeByGroup": "false"
+  }
+}

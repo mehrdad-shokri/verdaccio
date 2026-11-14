@@ -1,4 +1,3 @@
-
 ## npm
 npm-debug.log
 yarn-error.log
@@ -13,17 +12,14 @@ src/
 .vscode/
 .circleci/
 debug/
-
-
-## assets and website
-assets/
+docker-examples/
+reports/
 
 ## docs
 docs/
 wiki/
 
 ## flow
-flow-typed/
 types/
 
 # jest
@@ -31,10 +27,6 @@ coverage/
 test-storage*
 test/
 __mocks__/
-jestEnvironment.js
-test/jest.e2e.config.js
-test/jest.config.functional.js
-jest.config.js
 
 # misc
 contrib/

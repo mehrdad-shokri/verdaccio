@@ -1,0 +1,2521 @@
+import buildDebug from 'debug';
+import { isEmpty, isEqual, isNil } from 'lodash-es';
+import assert from 'node:assert';
+import { basename } from 'node:path';
+import { PassThrough, Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { URL } from 'node:url';
+
+import {
+  DEFAULT_TARBALL_METADATA_MAX_SIZE_MB,
+  getProxiesForPackage,
+  hasProxyTo,
+} from '@verdaccio/config';
+import type { pluginUtils, searchUtils } from '@verdaccio/core';
+import {
+  ANONYMOUS_USER,
+  API_ERROR,
+  API_MESSAGE,
+  DIST_TAGS,
+  HEADER_TYPE,
+  HTTP_STATUS,
+  MAINTAINERS,
+  SUPPORT_ERRORS,
+  USERS,
+  cryptoUtils,
+  errorUtils,
+  pkgUtils,
+  tarballUtils,
+  validationUtils,
+} from '@verdaccio/core';
+import type {
+  IProxy,
+  ISyncUplinksOptions,
+  ProxyInstanceList,
+  ProxySearchParams,
+} from '@verdaccio/proxy';
+import type { AttestationsResponse, RegistryKey } from '@verdaccio/proxy';
+import { ProxyStorage, setupUpLinks, updateVersionsHiddenUpLinkNext } from '@verdaccio/proxy';
+import Search, { SEARCH_MAX_CANDIDATES } from '@verdaccio/search';
+import type { TarballDetails, TarballMetadata } from '@verdaccio/tarball';
+import type { RequestOptions } from '@verdaccio/url';
+import {
+  convertDistRemoteToLocalTarballUrls,
+  convertDistVersionToLocalTarballsUrl,
+  getTarballDetails,
+} from '@verdaccio/tarball';
+import type {
+  AbbreviatedManifest,
+  AbbreviatedVersions,
+  Author,
+  Config,
+  DistFile,
+  GenericBody,
+  Logger,
+  Manifest,
+  MergeTags,
+  StringValue,
+  Token,
+  TokenFilter,
+  UnPublishManifest,
+  Version,
+} from '@verdaccio/types';
+
+import type { PublishOptions, UpdateManifestOptions } from '.';
+import { cleanUpReadme, isDeprecatedManifest, tagVersion, tagVersionNext } from '.';
+import { type Filters, applyManifestFilters, loadFilterPlugins } from './filter-pipeline';
+import { isPublishablePackage } from './lib/publish-utils';
+import {
+  STORAGE,
+  cleanUpLinksRef,
+  generatePackageTemplate,
+  generateRevision,
+  getLatestReadme,
+  mapManifestToSearchPackageBody,
+  maintainerAllowsLocalUser,
+  mergeUplinkTimeIntoLocalNext,
+  mergeVersions,
+  normalizeContributors,
+  normalizeDistTags,
+  normalizePackage,
+  scopeUpstreamMaintainers,
+  updateUpLinkMetadata,
+  lookupDistFile,
+  uplinkServesUrl,
+} from './lib/storage-utils';
+import { getVersion, isNewerVersion, removeLowerVersions } from './lib/versions-utils';
+import { StageStorage } from './stage-storage';
+import { TarballMetadataService } from './tarball-metadata';
+import { LocalStorage } from './local-storage';
+import type { IGetPackageOptionsNext, OwnerManifestBody } from './type';
+
+const debug = buildDebug('verdaccio:storage');
+// registry signing keys rotate every few years; refresh hourly
+const REGISTRY_KEYS_TTL = 60 * 60 * 1000;
+
+export const noSuchFile = 'ENOENT';
+export const resourceNotAvailable = 'EAGAIN';
+export const PROTO_NAME = '__proto__';
+
+class Storage {
+  public localStorage: LocalStorage;
+  public filters: Filters | null;
+  public readonly config: Config;
+  public readonly logger: Logger;
+  public readonly uplinks: ProxyInstanceList;
+  private registryKeysCache?: { keys: RegistryKey[] | null; expires: number };
+  private searchService: Search;
+  private stageStorage: StageStorage | null = null;
+  private tarballMetadata: TarballMetadataService | null = null;
+  public constructor(config: Config, logger: Logger) {
+    this.config = config;
+    this.logger = logger.child({ module: 'storage' });
+    this.uplinks = setupUpLinks(config, this.logger);
+    this.searchService = new Search(config, this.logger);
+    if (config.flags?.tarballMetadata) {
+      this.tarballMetadata = new TarballMetadataService({
+        maxSizeMB: config.tarball_metadata?.max_size_mb ?? DEFAULT_TARBALL_METADATA_MAX_SIZE_MB,
+        logger: this.logger,
+        onMetadata: (name, filename, metadata) => this.saveTarballStats(name, filename, metadata),
+      });
+    }
+    this.filters = null;
+    // @ts-ignore
+    this.localStorage = null;
+    debug('uplinks available %o', Object.keys(this.uplinks));
+  }
+
+  static ABBREVIATED_HEADER = 'application/vnd.npm.install-v1+json';
+
+  /**
+   * Change an existing package (i.e. unpublish one version)
+   Function changes a package info from local storage and all uplinks with write access./
+   Used storages: local (write)
+   */
+  public async changePackage(
+    name: string,
+    metadata: Manifest,
+    revision: string,
+    auth?: { username?: string }
+  ): Promise<void> {
+    debug('change existing package for package %o revision %o', name, revision);
+    debug(`change manifest tags for %o revision %o`, name, revision);
+    if (
+      !validationUtils.isObject(metadata.versions) ||
+      !validationUtils.isObject(metadata[DIST_TAGS])
+    ) {
+      debug(`change manifest bad data for %o`, name);
+      throw errorUtils.getBadData();
+    }
+
+    debug(`change manifest updating manifest for %o`, name);
+    await this.updatePackage(name, async (localData: Manifest): Promise<Manifest> => {
+      // The plugin lock is held here and through the write in updatePackage.
+      if (auth) {
+        await this.checkAllowedToChangePackage(localData, auth.username);
+      }
+      // clients echo back the _rev they fetched (GET ?write=true); missing or
+      // empty skips the match and lets a stale body drop concurrent versions
+      if (typeof metadata._rev !== 'string' || metadata._rev === '') {
+        debug('missing or empty revision for %o', name);
+        throw errorUtils.getBadData('revision is missing or empty');
+      }
+      if (metadata._rev !== localData._rev) {
+        debug('revision mismatch for %o: %o != %o', name, metadata._rev, localData._rev);
+        throw errorUtils.getConflict('revision does not match the latest package revision');
+      }
+      // eslint-disable-next-line guard-for-in
+      for (const version in localData.versions) {
+        const incomingVersion = metadata.versions[version];
+        if (isNil(incomingVersion)) {
+          this.logger.info({ name: name, version: version }, 'unpublishing @{name}@@{version}');
+
+          // FIXME: I prefer return a new object rather mutate the metadata
+          delete localData.versions[version];
+          delete localData.time![version];
+
+          for (const file in localData._attachments) {
+            if (localData._attachments[file].version === version) {
+              delete localData._attachments[file].version;
+            }
+          }
+        } else if (Object.prototype.hasOwnProperty.call(incomingVersion, 'deprecated')) {
+          const incomingDeprecated = incomingVersion.deprecated;
+          if (incomingDeprecated != localData.versions[version].deprecated) {
+            if (!incomingDeprecated) {
+              this.logger.info(
+                { name: name, version: version },
+                'undeprecating @{name}@@{version}'
+              );
+              delete localData.versions[version].deprecated;
+            } else {
+              this.logger.info({ name: name, version: version }, 'deprecating @{name}@@{version}');
+              localData.versions[version].deprecated = incomingDeprecated;
+            }
+            localData.time!.modified = new Date().toISOString();
+          }
+        }
+      }
+
+      localData[USERS] = metadata[USERS];
+      localData[DIST_TAGS] = metadata[DIST_TAGS];
+      // maintainers are the ownership source for checkAllowedToChangePackage;
+      // bodies that omit them (e.g. deprecate requests) must not wipe them
+      const maintainers = metadata[MAINTAINERS];
+      if (Array.isArray(maintainers) && maintainers.length > 0) {
+        localData[MAINTAINERS] = maintainers;
+      }
+      return localData;
+    });
+  }
+
+  public async removePackage(name: string, revision: string, username: string): Promise<void> {
+    debug('remove package %o', name);
+    await this.removePackageByRevision(name, revision, username);
+  }
+
+  /**
+   Remove a tarball from a system
+   Function removes a tarball from local storage.
+   Tarball in question should not be linked to in any existing
+   versions, i.e. package version should be unpublished first.
+   Used storage: local (write)
+   */
+  public async removeTarball(
+    name: string,
+    filename: string,
+
+    _revision: string,
+    username: string
+  ): Promise<Manifest> {
+    debug('remove tarball %s for %s', filename, name);
+    assert(validationUtils.validateName(filename));
+    const storage: pluginUtils.StorageHandler = this.getPrivatePackageStorage(name);
+    if (!storage) {
+      debug(`method not implemented for storage`);
+      this.logger.error('method for remove tarball not implemented');
+      throw errorUtils.getInternalError(API_ERROR.INTERNAL_SERVER_ERROR);
+    }
+
+    try {
+      const cacheManifest = await storage.readPackage(name);
+      if (!cacheManifest._attachments[filename]) {
+        throw errorUtils.getNotFound('no such file available');
+      }
+
+      // check if logged in user is allowed to remove tarball
+      await this.checkAllowedToChangePackage(cacheManifest, username);
+    } catch (err: any) {
+      if (err.code === noSuchFile) {
+        throw errorUtils.getNotFound();
+      }
+      throw err;
+    }
+
+    const manifest = await this.updatePackage(name, async (data: Manifest): Promise<Manifest> => {
+      const newData: Manifest = { ...data };
+      delete data._attachments[filename];
+      return newData;
+    });
+
+    try {
+      const storage: pluginUtils.StorageHandler = this.getPrivatePackageStorage(name);
+      if (!storage) {
+        debug(`method not implemented for storage`);
+        this.logger.error('method for remove tarball not implemented');
+        throw errorUtils.getInternalError(API_ERROR.INTERNAL_SERVER_ERROR);
+      }
+
+      await storage.deletePackage(filename);
+      debug('package %s removed', filename);
+    } catch (err: any) {
+      this.logger.error({ err }, 'error removing from storage: @{err.message}');
+      throw err;
+    }
+    return manifest;
+  }
+
+  /**
+   * Handle search on packages and proxies.
+   * Iterate all proxies configured and search in all endpoints in v2 and pipe all responses
+   *  once the proxies request has finished search in local storage for all packages
+   * (privated and cached).
+   */
+  public async search(options: ProxySearchParams): Promise<searchUtils.SearchPackageItem[]> {
+    debug('search on cache packages');
+    const cachePackages = await this.getCachedPackages(options.query);
+    debug('search found on cache packages %o', cachePackages.length);
+    const remotePackages = await this.searchService.search(options);
+    debug('search found on remote packages %o', remotePackages.length);
+    const totalResults = [...cachePackages, ...remotePackages];
+    const uniqueResults = removeLowerVersions(totalResults);
+    debug('unique results %o', uniqueResults.length);
+    return uniqueResults;
+  }
+
+  /** Cumulative, stable prefixes for Search v1; consumers stop once their page is full. */
+  public async *searchPages(options: ProxySearchParams) {
+    options.abort.signal.throwIfAborted();
+    const local = await this.getCachedPackages({
+      ...options.query,
+      from: 0,
+      size: SEARCH_MAX_CANDIDATES,
+    } as searchUtils.SearchQuery);
+    const merged = new Map<string, searchUtils.SearchPackageItem>();
+    let candidates = 0;
+    const append = (items: searchUtils.SearchPackageItem[]) => {
+      options.abort.signal.throwIfAborted();
+      candidates += items.length;
+      if (candidates > SEARCH_MAX_CANDIDATES) {
+        throw errorUtils.getServiceUnavailable('search pagination budget exhausted');
+      }
+      for (const item of items) {
+        if (!pkgUtils.isValidVersion(item?.package?.version)) {
+          this.logger.warn(
+            { name: item?.package?.name, version: item?.package?.version },
+            'ignoring invalid search version for @{name}: @{version}'
+          );
+          continue;
+        }
+        const previous = merged.get(item.package.name);
+        // Only a strictly newer version replaces an entry, so an equal version from an
+        // uplink never drops the local metadata; replacing must not move a package to a later page.
+        if (!previous || isNewerVersion(item.package.version, previous.package.version)) {
+          merged.set(item.package.name, item);
+        }
+      }
+      return [...merged.values()];
+    };
+    // Complete the first remote round before selecting a page so duplicate remote
+    // versions participate even when local results alone would fill it.
+    append(local);
+    let hadRound = false;
+    for await (const round of this.searchService.searchPages(options)) {
+      hadRound = true;
+      yield append(round);
+    }
+    if (!hadRound) yield [...merged.values()];
+  }
+
+  private async getTarballFromUpstream(name: string, filename: string, { signal }) {
+    this.logger.info(
+      { name, filename },
+      'get tarball for package @{name} filename @{filename} from uplink'
+    );
+    let cachedManifest: Manifest | null = null;
+    // the filtered view decides what is served; the raw one is what may be persisted
+    let rawManifest: Manifest | null = null;
+    try {
+      rawManifest = await this.getPackageLocalMetadata(name);
+      [cachedManifest] = await this.applyFilters(rawManifest);
+    } catch (err) {
+      debug('error on get package local metadata %o', err);
+    }
+    // dist url should be on local cache metadata; when the bookkeeping
+    // record is missing, the version dist metadata still knows the url
+    const cachedDistFile =
+      cachedManifest !== null ? lookupDistFile(cachedManifest, filename) : null;
+    if (cachedDistFile !== null && typeof cachedDistFile.url === 'string') {
+      debug('dist file found, using it %o', cachedDistFile.url);
+      // dist file found, proceed to download
+      return this.fetchTarballFromDistFile(name, filename, cachedDistFile, cachedManifest, {
+        signal,
+      });
+    } else {
+      debug('dist file not found, proceed update upstream');
+      // no dist url found, proceed to fetch from upstream
+      // should not be the case
+      // ensure get the latest data
+      const [updatedManifest] = await this.syncUplinksMetadata(name, rawManifest, {
+        uplinksLook: true,
+      });
+      const distFile =
+        updatedManifest === null ? null : lookupDistFile(updatedManifest as Manifest, filename);
+
+      if (updatedManifest === null || !distFile) {
+        debug('remote tarball not found');
+        // TODO: review the error message, it causes unnecessary
+        // error on console
+        throw errorUtils.getNotFound(API_ERROR.NO_SUCH_FILE);
+      }
+
+      return this.fetchTarballFromDistFile(name, filename, distFile, updatedManifest as Manifest, {
+        signal,
+      });
+    }
+  }
+
+  private fetchTarballFromDistFile(
+    name: string,
+    filename: string,
+    distFile: DistFile,
+    origin: Manifest | null,
+    { signal }
+  ): PassThrough {
+    let current_length = 0;
+    let expected_length;
+    let uplinkStatusError: Error | null = null;
+    const passThroughRemoteStream = new PassThrough();
+    const proxy = this.getUpLinkForDistFile(name, filename, distFile, origin);
+    if (proxy === null) {
+      // off-uplink url on a locally published package: refuse the fetch (SSRF).
+      // deferred so the caller has attached its stream listeners
+      setImmediate(() =>
+        passThroughRemoteStream.emit('error', errorUtils.getNotFound(API_ERROR.NO_SUCH_FILE))
+      );
+      return passThroughRemoteStream;
+    }
+    const remoteStream = proxy.fetchTarball(distFile.url, { throwHttpErrors: false });
+
+    const readRemoteBody = (): Promise<any> =>
+      new Promise((resolve) => {
+        const chunks: Buffer[] = [];
+        remoteStream.on('data', (chunk: Buffer) => chunks.push(chunk));
+        remoteStream.once('end', () => {
+          const raw = Buffer.concat(chunks);
+          if (raw.length === 0) {
+            resolve(undefined);
+            return;
+          }
+          try {
+            resolve(JSON.parse(raw.toString('utf8')));
+          } catch {
+            resolve(undefined);
+          }
+        });
+        remoteStream.once('error', () => resolve(undefined));
+      });
+
+    remoteStream
+      .on('response', async (res) => {
+        if (res.statusCode === HTTP_STATUS.NOT_FOUND) {
+          debug('remote stream response 404');
+          remoteStream.resume();
+          uplinkStatusError = errorUtils.getNotFound(errorUtils.API_ERROR.NOT_FILE_UPLINK);
+          passThroughRemoteStream.emit('error', uplinkStatusError);
+          return;
+        }
+
+        if (res.statusCode === HTTP_STATUS.UNAUTHORIZED) {
+          debug('remote stream response 401');
+          remoteStream.resume();
+          uplinkStatusError = errorUtils.getUnauthorized(errorUtils.API_ERROR.UNAUTHORIZED_ACCESS);
+          passThroughRemoteStream.emit('error', uplinkStatusError);
+          return;
+        }
+
+        if (res.statusCode === HTTP_STATUS.FORBIDDEN) {
+          debug('remote stream response 403');
+          const body = await readRemoteBody();
+          const message =
+            body?.detail ||
+            body?.title ||
+            body?.message ||
+            'tarball not available: forbidden by uplink';
+          uplinkStatusError = errorUtils.getForbidden(message);
+          passThroughRemoteStream.emit('error', uplinkStatusError);
+          return;
+        }
+
+        if (!(res.statusCode >= HTTP_STATUS.OK && res.statusCode < HTTP_STATUS.MULTIPLE_CHOICES)) {
+          debug('remote stream response %o', res.statusCode);
+          remoteStream.resume();
+          uplinkStatusError = errorUtils.getInternalError(
+            `bad uplink status code: ${res.statusCode}`
+          );
+          passThroughRemoteStream.emit('error', uplinkStatusError);
+          return;
+        }
+
+        if (res.headers[HEADER_TYPE.CONTENT_LENGTH]) {
+          expected_length = res.headers[HEADER_TYPE.CONTENT_LENGTH];
+          debug('remote stream response content length %o', expected_length);
+          passThroughRemoteStream.emit(
+            HEADER_TYPE.CONTENT_LENGTH,
+            res.headers[HEADER_TYPE.CONTENT_LENGTH]
+          );
+        }
+
+        try {
+          debug('remote stream response ok, starting pipeline');
+          const storage = this.getPrivatePackageStorage(name) as any;
+          if (proxy.config.cache === true && storage) {
+            const localStorageWriteStream = await storage.writeTarball(filename, {
+              signal,
+            });
+
+            await pipeline(remoteStream, passThroughRemoteStream, localStorageWriteStream, {
+              signal,
+            });
+          } else {
+            await pipeline(remoteStream, passThroughRemoteStream, {
+              signal,
+            });
+          }
+        } catch (err: any) {
+          if (uplinkStatusError) {
+            return;
+          }
+          debug('error on pipeline downloading tarball for package %o', name);
+          passThroughRemoteStream.emit('error', err);
+        }
+      })
+      .on('downloadProgress', (progress) => {
+        current_length = progress.transferred;
+        if (typeof expected_length === 'undefined' && progress.total) {
+          expected_length = progress.total;
+        }
+      })
+      .on('end', () => {
+        if (uplinkStatusError) {
+          return;
+        }
+        if (expected_length && current_length != expected_length) {
+          debug('stream end, but length mismatch %o %o', current_length, expected_length);
+          passThroughRemoteStream.emit(
+            'error',
+            errorUtils.getInternalError(API_ERROR.CONTENT_MISMATCH)
+          );
+        }
+        debug('remote stream end');
+      })
+      .on('error', (err) => {
+        if (uplinkStatusError) {
+          return;
+        }
+        debug('remote stream error %o', err);
+        passThroughRemoteStream.emit('error', err);
+      });
+
+    return passThroughRemoteStream;
+  }
+
+  /**
+   *
+   * @param name
+   * @param filename
+   * @param param2
+   * @returns
+   */
+  public async getTarball(name: string, filename: string, { signal }): Promise<PassThrough> {
+    this.logger.info({ name, filename }, 'get tarball for package @{name} filename @{filename}');
+    debug('get tarball for package %o filename %o', name, filename);
+    // TODO: check if isOpen is need it after all.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    let isOpen = false;
+    const localTarballStream = new PassThrough();
+    // Both the local fs stream and the uplink stream announce the tarball size
+    // via a 'content-length' event, but the API listens on the PassThrough
+    // wrapper — re-emit so the HTTP response can carry a Content-Length header.
+    const forwardContentLength = (source: Readable): void => {
+      source.on(HEADER_TYPE.CONTENT_LENGTH, (size) => {
+        localTarballStream.emit(HEADER_TYPE.CONTENT_LENGTH, size);
+      });
+    };
+    const localStream = await this.getLocalTarball(name, filename, { signal });
+    forwardContentLength(localStream);
+    localStream.on('open', async () => {
+      isOpen = true;
+      try {
+        await pipeline(localStream, localTarballStream, { signal });
+      } catch (err: any) {
+        // pipeline already destroyed both streams; an unhandled rejection
+        // here would kill the process
+        this.logger.warn(
+          { err, filename },
+          'error streaming local tarball @{filename}: @{err.message}'
+        );
+      }
+    });
+
+    localStream.on('error', (err: any) => {
+      if (err.code === STORAGE.NO_SUCH_FILE_ERROR || err.code === HTTP_STATUS.NOT_FOUND) {
+        this.getTarballFromUpstream(name, filename, { signal })
+          .then((uplinkStream) => {
+            forwardContentLength(uplinkStream);
+            pipeline(uplinkStream, localTarballStream, { signal })
+              .then(() => {
+                debug('successfully downloaded tarball for package %o filename %o', name, filename);
+              })
+              .catch((err) => {
+                localTarballStream.emit('error', err);
+              });
+          })
+          .catch((err) => {
+            localTarballStream.emit('error', err);
+          });
+      } else {
+        this.logger.error({ err }, 'some error on fatal: @{err.message}');
+        localTarballStream.emit('error', err);
+      }
+    });
+
+    return localTarballStream;
+  }
+
+  /**
+   * Experimental (`flags.tarballMetadata`): the README inside a version's tarball,
+   * or undefined when the flag is off, the tarball has none or exceeds the size limit.
+   */
+  public async getTarballReadme(name: string, version: Version): Promise<string | undefined> {
+    if (this.tarballMetadata === null || typeof version?.dist?.tarball !== 'string') {
+      return undefined;
+    }
+    const filename = tarballUtils.extractTarballFromUrl(version.dist.tarball);
+    return this.tarballMetadata.getReadme(name, filename, (signal) =>
+      this.getTarball(name, filename, { signal })
+    );
+  }
+
+  private async saveTarballStats(
+    name: string,
+    filename: string,
+    { fileCount, unpackedSize }: TarballMetadata
+  ): Promise<void> {
+    const findVersion = (manifest: Manifest): Version | undefined =>
+      Object.values(manifest.versions ?? {}).find(
+        (version) =>
+          typeof version?.dist?.tarball === 'string' &&
+          tarballUtils.extractTarballFromUrl(version.dist.tarball) === filename
+      );
+    const hasStats = (version: Version): boolean =>
+      !isNil(version.dist.fileCount) && !isNil(version.dist.unpackedSize);
+
+    const cached = findVersion(await this.getPackageLocalMetadata(name));
+    if (!cached || hasStats(cached)) {
+      return;
+    }
+    await this.updatePackage(name, async (manifest: Manifest): Promise<Manifest> => {
+      const version = findVersion(manifest);
+      if (version && !hasStats(version)) {
+        version.dist.fileCount ??= fileCount;
+        version.dist.unpackedSize ??= unpackedSize;
+        debug('tarball stats saved for %o %o', name, filename);
+      }
+      return manifest;
+    });
+  }
+
+  public async getPackageByVersion(options: IGetPackageOptionsNext): Promise<Version> {
+    const queryVersion = options.version as string;
+    if (isNil(queryVersion)) {
+      throw errorUtils.getNotFound(`${API_ERROR.VERSION_NOT_EXIST}: ${queryVersion}`);
+    }
+
+    // we have version, so we need to return specific version
+    const [convertedManifest] = await this.getPackage(options);
+
+    const version: Version | undefined = getVersion(convertedManifest.versions, queryVersion);
+
+    debug('query by latest version %o and result %o', queryVersion, version?.version);
+    if (typeof version !== 'undefined') {
+      return convertDistVersionToLocalTarballsUrl(
+        convertedManifest.name,
+        version,
+        options.requestOptions,
+        this.config.url_prefix
+      );
+    }
+
+    // the version could be a dist-tag eg: beta, alpha, so we find the matched version
+    // on disg-tag list
+    if (isNil(convertedManifest[DIST_TAGS]) === false) {
+      if (
+        Object.hasOwn(convertedManifest[DIST_TAGS], queryVersion) &&
+        isNil(convertedManifest[DIST_TAGS][queryVersion]) === false
+      ) {
+        // the version found as a distag
+        const matchedDisTagVersion: string = convertedManifest[DIST_TAGS][queryVersion];
+        debug('dist-tag version found %o', matchedDisTagVersion);
+        const disTagVersion: Version | undefined = getVersion(
+          convertedManifest.versions,
+          matchedDisTagVersion
+        );
+        if (typeof disTagVersion !== 'undefined') {
+          debug('dist-tag found %o', disTagVersion?.version);
+          return convertDistVersionToLocalTarballsUrl(
+            convertedManifest.name,
+            disTagVersion,
+            options.requestOptions,
+            this.config.url_prefix
+          );
+        }
+      }
+    } else {
+      debug('dist tag not detected');
+    }
+
+    // we didn't find the version, not found error
+    debug('package version not found %o', queryVersion);
+    throw errorUtils.getNotFound(`${API_ERROR.VERSION_NOT_EXIST}: ${queryVersion}`);
+  }
+
+  public async getPackageManifest(options: IGetPackageOptionsNext): Promise<Manifest> {
+    // convert dist remotes to local bars
+    const [manifest] = await this.getPackage(options);
+
+    // If change access is requested (?write=true), then check if logged in user is allowed to change package
+    if (options.requestOptions.byPassCache === true) {
+      await this.checkAllowedToChangePackage(manifest, options.requestOptions.username);
+    }
+
+    const convertedManifest = convertDistRemoteToLocalTarballUrls(
+      manifest,
+      options.requestOptions,
+      this.config.url_prefix
+    );
+
+    return convertedManifest;
+  }
+
+  private convertAbbreviatedManifest(manifest: Manifest): AbbreviatedManifest {
+    const abbreviatedVersions = Object.keys(manifest.versions).reduce(
+      (acc: AbbreviatedVersions, version: string) => {
+        const _version = manifest.versions[version];
+        // This should be align with this document
+        // https://github.com/npm/registry/blob/master/docs/responses/package-metadata.md#abbreviated-version-object
+        const _version_abbreviated = {
+          name: _version.name,
+          version: _version.version,
+          deprecated: _version.deprecated,
+          bin: _version.bin,
+          dist: _version.dist,
+          engines: _version.engines,
+          funding: _version.funding,
+          directories: _version.directories,
+          dependencies: _version.dependencies,
+          devDependencies: _version.devDependencies,
+          peerDependencies: _version.peerDependencies,
+          optionalDependencies: _version.optionalDependencies,
+          bundleDependencies: _version.bundleDependencies,
+          cpu: _version.cpu,
+          os: _version.os,
+          peerDependenciesMeta: _version.peerDependenciesMeta,
+          acceptDependencies: _version.acceptDependencies,
+          // npm cli specifics
+          _hasShrinkwrap: _version._hasShrinkwrap,
+          hasInstallScript: _version.hasInstallScript,
+        };
+        acc[version] = _version_abbreviated;
+        return acc;
+      },
+      {}
+    );
+    // The abbreviated (install-v1 / "corgi") format exists to keep install
+    // metadata small: internal CouchDB fields (_id, _rev) and the readme are
+    // deliberately excluded, matching the npm registry contract.
+    const convertedManifest = {
+      name: manifest['name'],
+      [DIST_TAGS]: manifest[DIST_TAGS],
+      versions: abbreviatedVersions,
+      modified: manifest.time.modified,
+      // NOTE: special case for pnpm https://github.com/pnpm/rfcs/pull/2
+      time: manifest.time,
+    };
+
+    return convertedManifest;
+  }
+
+  /**
+   * Return a manifest or version based on the options.
+   * @param options {Object}
+   * @returns A package manifest or specific version
+   */
+  public async getPackageByOptions(
+    options: IGetPackageOptionsNext
+  ): Promise<Manifest | AbbreviatedManifest | Version> {
+    // if no version we return the whole manifest
+    if (isNil(options.version) === false) {
+      debug('get package by version %o', options.version);
+      return this.getPackageByVersion(options);
+    } else {
+      debug('get full package manifest');
+      const manifest = await this.getPackageManifest(options);
+      if (options.abbreviated === true) {
+        debug('get abbreviated manifest');
+        return this.convertAbbreviatedManifest(manifest);
+      }
+      return manifest;
+    }
+  }
+
+  public async getLocalDatabase(): Promise<Version[]> {
+    debug('get local database');
+    const storage = this.localStorage.getStoragePlugin();
+    const database = await storage.get();
+    const packages: Version[] = [];
+    for (const pkg of database) {
+      debug('get local database %o', pkg);
+      const manifest = await this.getPackageLocalMetadata(pkg);
+      const [filteredManifest] = await this.applyFilters(manifest);
+      const latest = filteredManifest[DIST_TAGS].latest;
+      if (latest && filteredManifest.versions[latest]) {
+        const version: Version = filteredManifest.versions[latest];
+        const timeList = filteredManifest.time as GenericBody;
+        const time = timeList[latest];
+        // @ts-ignore
+        version.time = time;
+
+        // Add for stars api
+        // @ts-ignore
+        version.users = filteredManifest.users;
+        // Remove readmes for packages list (which might exist with keep_readmes config)
+        version.readme = '';
+
+        packages.push(version);
+      } else {
+        this.logger.warn({ package: pkg }, 'package @{package} does not have a "latest" tag?');
+      }
+    }
+    return packages;
+  }
+
+  public saveToken(token: Token): Promise<any> {
+    if (typeof this.localStorage.getStoragePlugin().saveToken !== 'function') {
+      return Promise.reject(
+        errorUtils.getCode(HTTP_STATUS.SERVICE_UNAVAILABLE, SUPPORT_ERRORS.PLUGIN_MISSING_INTERFACE)
+      );
+    }
+
+    return this.localStorage.getStoragePlugin().saveToken(token);
+  }
+
+  public deleteToken(user: string, tokenKey: string): Promise<any> {
+    if (typeof this.localStorage.getStoragePlugin().deleteToken !== 'function') {
+      return Promise.reject(
+        errorUtils.getCode(HTTP_STATUS.SERVICE_UNAVAILABLE, SUPPORT_ERRORS.PLUGIN_MISSING_INTERFACE)
+      );
+    }
+
+    return this.localStorage.getStoragePlugin().deleteToken(user, tokenKey);
+  }
+
+  public readTokens(filter: TokenFilter): Promise<Token[]> {
+    if (typeof this.localStorage.getStoragePlugin().readTokens !== 'function') {
+      return Promise.reject(
+        errorUtils.getCode(HTTP_STATUS.SERVICE_UNAVAILABLE, SUPPORT_ERRORS.PLUGIN_MISSING_INTERFACE)
+      );
+    }
+
+    return this.localStorage.getStoragePlugin().readTokens(filter);
+  }
+
+  /**
+   * Initialize the storage asynchronously.
+   * @param config Config
+   * @param filters Filters
+   * @returns Storage instance
+   */
+  public async init(config: Config): Promise<void> {
+    if (this.localStorage === null) {
+      this.localStorage = new LocalStorage(this.config, this.logger);
+      await this.localStorage.init();
+      debug('local init storage initialized');
+      await this.localStorage.getSecret(config);
+      debug('local storage secret initialized');
+    } else {
+      debug('storage has been already initialized');
+    }
+    if (!this.filters) {
+      this.filters = await loadFilterPlugins(this.config, this.logger);
+    }
+    return;
+  }
+
+  /**
+   * Persistence for the staged publish workflow (`npm stage`).
+   *
+   * Memoized on purpose: {@link StageStorage} serializes index mutations with a
+   * per-instance queue, so handing out more than one instance would silently
+   * defeat it.
+   */
+  public getStageStorage(): StageStorage {
+    if (this.stageStorage === null) {
+      this.stageStorage = new StageStorage(this.localStorage.getStoragePlugin(), this.logger);
+    }
+    return this.stageStorage;
+  }
+
+  /** Resolve a locally known version without fetching lifecycle information from uplinks. */
+  public async getPackageVersionStatus(
+    name: string,
+    version: string
+  ): Promise<'published' | 'staged'> {
+    // Read staging first: approval publishes the version before removing its staged record.
+    const staged = this.config.flags?.stage
+      ? await this.getStageStorage().findByVersion(name, version)
+      : undefined;
+    let manifest: Manifest | undefined;
+    try {
+      manifest = await this.getPackageLocalMetadata(name);
+    } catch (error: any) {
+      if (error.status !== HTTP_STATUS.NOT_FOUND) {
+        throw error;
+      }
+    }
+    if (manifest) {
+      const [filtered] = await this.applyFilters(manifest);
+      if (Object.hasOwn(filtered.versions, version)) {
+        return 'published';
+      }
+    }
+    if (staged) {
+      return 'staged';
+    }
+    throw errorUtils.getNotFound('no such package version');
+  }
+
+  /**
+   * Retrieve a wrapper that provide access to the package location.
+   * @param {Object} pkgName package name.
+   * @return {Object}
+   */
+  private getPrivatePackageStorage(pkgName: string): pluginUtils.StorageHandler {
+    debug('get local storage for %o', pkgName);
+    return this.localStorage.getStoragePlugin().getPackageStorage(pkgName);
+  }
+
+  /**
+   * Create a tarball stream from a package.
+   * @param name
+   * @param filename
+   * @param options
+   * @returns
+   */
+  public async getLocalTarball(
+    pkgName: string,
+    filename: string,
+    { signal }: { signal: AbortSignal }
+  ): Promise<Readable> {
+    assert(validationUtils.validateName(filename));
+    const storage: pluginUtils.StorageHandler = this.getPrivatePackageStorage(pkgName);
+    if (typeof storage === 'undefined') {
+      return this.createFailureStreamResponseNext();
+    }
+
+    return await storage.readTarball(filename, { signal });
+  }
+
+  public async getCachedPackages(
+    query?: searchUtils.SearchQuery
+  ): Promise<searchUtils.SearchPackageItem[]> {
+    debug('search on each package', query);
+    const results: searchUtils.SearchPackageItem[] = [];
+    if (typeof query === 'undefined' || typeof query?.text === 'undefined') {
+      debug('search query for cached not found');
+      return results;
+    }
+
+    this.logger.info(
+      { t: query.text, q: query.quality, p: query.popularity, m: query.maintenance, s: query.size },
+      'search by text @{t}| maintenance @{m}| quality @{q}| popularity @{p}'
+    );
+
+    if (typeof this.localStorage.getStoragePlugin().search === 'undefined') {
+      this.logger.info('plugin search not implemented yet');
+    } else {
+      debug('search on each package by plugin query');
+      const items = await this.localStorage.getStoragePlugin().search(query);
+      try {
+        for (const searchItem of items) {
+          const manifest = await this.getPackageLocalMetadata(searchItem.package.name);
+          const [filteredManifest] = await this.applyFilters(manifest);
+          if (isEmpty(filteredManifest?.versions) === false) {
+            const searchPackage = mapManifestToSearchPackageBody(filteredManifest, searchItem);
+            debug('search local stream found %o', searchPackage.name);
+            const searchPackageItem: searchUtils.SearchPackageItem = {
+              package: searchPackage,
+              score: searchItem.score,
+              verdaccioPkgCached: searchItem.verdaccioPkgCached,
+              verdaccioPrivate: searchItem.verdaccioPrivate,
+              flags: searchItem?.flags,
+              // FUTURE: find a better way to calculate the score
+              searchScore: 1,
+            };
+            results.push(searchPackageItem);
+          } else {
+            debug('local item without versions detected %s', searchItem.package.name);
+          }
+        }
+        debug('search local stream end');
+      } catch (err) {
+        this.logger.error(
+          { err, query },
+          'error on search by plugin for @{query.text}: @{err.message}'
+        );
+        throw err;
+      }
+    }
+    return results;
+  }
+
+  private async removePackageByRevision(
+    pkgName: string,
+    revision: string,
+    username: string
+  ): Promise<void> {
+    const storage: pluginUtils.StorageHandler = this.getPrivatePackageStorage(pkgName);
+    debug('get package metadata for %o', pkgName);
+    if (typeof storage === 'undefined') {
+      throw errorUtils.getServiceUnavailable('storage not initialized');
+    }
+    let manifest;
+    try {
+      manifest = await storage.readPackage(pkgName);
+      manifest = normalizePackage(manifest);
+    } catch (err: any) {
+      if (err.code === STORAGE.NO_SUCH_FILE_ERROR || err.code === HTTP_STATUS.NOT_FOUND) {
+        this.logger.info({ pkgName, revision }, 'package not found');
+        throw errorUtils.getNotFound();
+      }
+      this.logger.error(
+        { pkgName, revision, err },
+        'error while reading package @{pkgName}-{revision}: @{err.message}'
+      );
+      throw err;
+    }
+
+    // TODO:  move this to another method
+    try {
+      // check if logged in user is allowed to remove package
+      await this.checkAllowedToChangePackage(manifest, username);
+
+      await this.localStorage.getStoragePlugin().remove(pkgName);
+      // remove each attachment
+      const attachments = Object.keys(manifest._attachments);
+      debug('attachments to remove %s', attachments?.length);
+      for (const attachment of attachments) {
+        debug('remove attachment %s', attachment);
+        await storage.deletePackage(attachment);
+        this.logger.info({ attachment }, 'attachment @{attachment} removed');
+      }
+      // remove package.json
+      debug('remove package.json');
+      await storage.deletePackage(STORAGE.PACKAGE_FILE_NAME);
+      // remove folder
+      debug('remove package folder');
+      await storage.removePackage(pkgName);
+      this.logger.info({ pkgName }, 'package @{pkgName} removed');
+    } catch (err: any) {
+      this.logger.error({ err }, 'removed package has failed: @{err.message}');
+      throw errorUtils.getBadData(err.message);
+    }
+  }
+
+  /**
+   * Get a package local manifest.
+   *
+   * Fails if package is not found.
+   * @param name package name
+   * @param revision of package
+   * @returns local manifest
+   */
+
+  public async getPackageLocalMetadata(name: string, _revision?: string): Promise<Manifest> {
+    const storage: pluginUtils.StorageHandler = this.getPrivatePackageStorage(name);
+    debug('get package metadata for %o', name);
+    if (typeof storage === 'undefined') {
+      throw errorUtils.getServiceUnavailable('storage not initialized');
+    }
+
+    try {
+      const result: Manifest = await storage.readPackage(name);
+      return normalizePackage(result);
+    } catch (err: any) {
+      if (err.code === STORAGE.NO_SUCH_FILE_ERROR || err.code === HTTP_STATUS.NOT_FOUND) {
+        debug('package %s not found', name);
+        throw errorUtils.getNotFound();
+      }
+      this.logger.error(
+        { err, file: STORAGE.PACKAGE_FILE_NAME },
+        'error reading  @{file}: @{err.message}'
+      );
+
+      throw errorUtils.getInternalError();
+    }
+  }
+
+  /**
+   * Fail the stream response with an not found error.
+   * @returns
+   */
+  private createFailureStreamResponseNext(): PassThrough {
+    const stream: PassThrough = new PassThrough();
+
+    // we ensure fails on the next tick into the event loop
+    process.nextTick((): void => {
+      stream.emit('error', errorUtils.getNotFound(API_ERROR.NO_SUCH_FILE));
+    });
+
+    return stream;
+  }
+
+  /**
+   * Update a package and merge tags
+   * @param name package name
+   * @param tags list of dist-tags
+   */
+  public async mergeTagsNext(
+    name: string,
+    tags: MergeTags,
+    requestOptions?: RequestOptions
+  ): Promise<Manifest> {
+    return await this.updatePackage(name, async (data: Manifest): Promise<Manifest> => {
+      // requestOptions is absent only on internal calls (publish flow), which
+      // run their own ownership check before getting here
+      if (requestOptions) {
+        await this.checkAllowedToChangePackage(data, requestOptions.username);
+      }
+      let newData: Manifest = { ...data };
+      for (const tag of Object.keys(tags)) {
+        // this handle dist-tag rm command
+        if (tags[tag] === null) {
+          delete newData[DIST_TAGS][tag];
+          continue;
+        }
+
+        if (isNil(newData.versions[tags[tag]])) {
+          throw errorUtils.getNotFound(API_ERROR.VERSION_NOT_EXIST);
+        }
+        const version: string = tags[tag];
+        newData = tagVersionNext(newData, version, tag);
+      }
+
+      return newData;
+    });
+  }
+
+  /** Signing keys of every uplink merged by keyid, for `GET /-/npm/v1/keys`; null when none has keys. */
+  public async getRegistryKeys(): Promise<RegistryKey[] | null> {
+    if (this.registryKeysCache && this.registryKeysCache.expires > Date.now()) {
+      return this.registryKeysCache.keys;
+    }
+    // a complete answer is cached for the TTL, with or without keys; failures are retried
+    const byKeyId = new Map<string, RegistryKey>();
+    let complete = true;
+    let lastError: Error | undefined;
+    for (const uplinkName of Object.keys(this.uplinks)) {
+      try {
+        for (const key of (await this.uplinks[uplinkName].getRegistryKeys()) ?? []) {
+          const known = byKeyId.get(key.keyid);
+          // the first uplink declared wins; a different key under the same id is never served
+          if (known && known.key !== key.key) {
+            this.logger.warn(
+              { uplinkName, keyid: key.keyid },
+              'uplink @{uplinkName} publishes a different key for @{keyid}, ignored'
+            );
+          } else if (!known) {
+            byKeyId.set(key.keyid, key);
+          }
+        }
+      } catch (err: any) {
+        complete = false;
+        lastError = err;
+        this.logger.warn(
+          { uplinkName, err: err.message },
+          'signing keys of uplink @{uplinkName} unavailable: @{err}'
+        );
+      }
+    }
+    if (byKeyId.size === 0 && lastError) {
+      // no keys because every uplink failed is an outage, not a registry without keys
+      throw lastError;
+    }
+    const keys = byKeyId.size === 0 ? null : [...byKeyId.values()];
+    // a partial set is served but not cached, so a recovered uplink is asked again next time
+    if (complete) {
+      this.registryKeysCache = { keys, expires: Date.now() + REGISTRY_KEYS_TTL };
+    }
+    return keys;
+  }
+
+  /**
+   * Attestations of a version, asked to the uplink recorded for it in `_distfiles` or, when
+   * unknown, to the uplinks that proxy the package in order. Null when
+   * none has them; the last lookup error is thrown when no uplink could answer.
+   */
+  public async getAttestations(
+    name: string,
+    version: string
+  ): Promise<AttestationsResponse | null> {
+    const cached = await this.getPackagelocalByName(name);
+    const source = cached ? this.uplinkOfVersion(cached, version) : undefined;
+    const candidates = source
+      ? [source]
+      : Object.keys(this.uplinks).filter((uplinkName) =>
+          hasProxyTo(name, uplinkName, this.config.packages)
+        );
+    let lastError: Error | undefined;
+    for (const uplinkName of candidates) {
+      try {
+        const attestations = await this.uplinks[uplinkName].getAttestations(name, version);
+        if (attestations) {
+          return attestations;
+        }
+        lastError = undefined;
+      } catch (err: any) {
+        lastError = err;
+        this.logger.warn(
+          { name, version, uplinkName, err: err.message },
+          'attestations of @{name}@@{version} unavailable on uplink @{uplinkName}: @{err}'
+        );
+      }
+    }
+    if (lastError) {
+      throw lastError;
+    }
+    return null;
+  }
+
+  // `_distfiles` records the uplink a version was merged from (see updateUplinkToRemoteProtocol)
+  private uplinkOfVersion(manifest: Manifest, version: string): string | undefined {
+    const tarball = manifest.versions?.[version]?.dist?.tarball;
+    const registry =
+      typeof tarball === 'string'
+        ? manifest._distfiles?.[tarballUtils.extractTarballFromUrl(tarball)]?.registry
+        : undefined;
+    return registry &&
+      this.uplinks[registry] &&
+      hasProxyTo(manifest.name, registry, this.config.packages)
+      ? registry
+      : undefined;
+  }
+
+  /**
+   * Resolve the uplink to fetch a distfile url from, or null when the fetch
+   * must be refused.
+   *
+   * Off-uplink urls on a locally published package are not fetched: the
+   * client's `dist.tarball` is stored verbatim, and fetching it would be SSRF
+   * (and would attach uplink credentials when only one uplink is configured).
+   * Uplink-synced packages may still use an autogenerated proxy without
+   * credentials for CDN-hosted tarballs.
+   */
+  private getUpLinkForDistFile(
+    pkgName: string,
+    filename: string,
+    distFile: DistFile,
+    origin?: Manifest | null
+  ): IProxy | null {
+    const candidates: IProxy[] = [];
+    for (const uplinkName in this.uplinks) {
+      // refer to https://github.com/verdaccio/verdaccio/issues/1642
+      if (hasProxyTo(pkgName, uplinkName, this.config.packages)) {
+        candidates.push(this.uplinks[uplinkName]);
+      }
+    }
+
+    let uplink: IProxy | null = null;
+
+    // 1. the recorded uplink (see updateUplinkToRemoteProtocol) is only used
+    //    when it actually serves this url, so its Authorization header is
+    //    never sent to an unrelated host
+    if (distFile.registry && this.uplinks[distFile.registry]) {
+      const recorded = this.uplinks[distFile.registry];
+      if (uplinkServesUrl(recorded.url, distFile.url)) {
+        debug('tarball is served by the recorded uplink %o', distFile.registry);
+        uplink = recorded;
+      }
+    }
+
+    // 2. otherwise pick the uplink that actually serves the distfile url, so
+    //    the credentials of an unrelated uplink are never sent to it; with
+    //    several matching uplinks (duplicated urls) the last configured one
+    //    keeps winning, exactly like the previous selection did
+    if (uplink === null) {
+      for (const candidate of candidates) {
+        if (uplinkServesUrl(candidate.url, distFile.url)) {
+          uplink = candidate;
+        }
+      }
+    }
+
+    // 3. no uplink serves the url. `_distfiles` is written when metadata is
+    //    merged from an uplink; a local publish only stores
+    //    versions[].dist.tarball, so a version fallback to an off-uplink url
+    //    is client-controlled — refuse the fetch.
+    if (uplink === null) {
+      const fromDistfiles = Boolean(origin?._distfiles?.[filename]);
+      if (!fromDistfiles) {
+        debug(
+          'refusing off-uplink tarball fetch for locally published %o (%o)',
+          pkgName,
+          distFile.url
+        );
+        // observable for devops: a refusal signals either an attempt to make
+        // the registry fetch a client-controlled url, or a migrated cache that
+        // lost its `_distfiles` record (see uplinks docs for recovery)
+        this.logger.warn(
+          { name: pkgName, filename, url: distFile.url },
+          'refused off-uplink tarball fetch for @{name} (@{url})'
+        );
+        return null;
+      }
+
+      // 4. uplink-synced package with a CDN-hosted tarball: autogenerated
+      //    proxy without credentials
+      debug('upstream not found, creating one for %o without uplink credentials', pkgName);
+      // observable for devops: which off-uplink host a synced tarball is
+      // fetched from, without the uplink's credentials
+      this.logger.http(
+        { name: pkgName, url: distFile.url },
+        'serving off-uplink tarball via autogenerated proxy for @{name} (@{url})'
+      );
+      uplink = new ProxyStorage(
+        `verdaccio-${pkgName}`,
+        {
+          url: distFile.url,
+          cache: true,
+        },
+        this.config,
+        this.logger
+      );
+    }
+    return uplink;
+  }
+
+  public async updateManifest(
+    manifest: Manifest | OwnerManifestBody | UnPublishManifest,
+    options: UpdateManifestOptions
+  ): Promise<string | undefined> {
+    debug('update manifest %o for user %o', manifest._id, options.requestOptions.username);
+    const isDeprecation = isDeprecatedManifest(manifest as Manifest);
+    if (isDeprecation && !options.allowUnpublish) {
+      const localManifest = await this.getPackageLocalMetadata(options.name);
+      if (
+        Object.keys(localManifest.versions).some((version) =>
+          isNil((manifest as Manifest).versions[version])
+        )
+      ) {
+        throw errorUtils.getBadRequest(API_ERROR.UNSUPORTED_REGISTRY_CALL);
+      }
+    }
+    if (isDeprecation) {
+      debug('update manifest deprecate');
+      // if the manifest is deprecated, we need to update the package.json
+      await this.deprecate(manifest as Manifest, {
+        ...options,
+      });
+    } else if (
+      isPublishablePackage(manifest as Manifest) === false &&
+      Array.isArray((manifest as OwnerManifestBody).maintainers)
+    ) {
+      debug('update manifest owners');
+      // if user request to change owners of package
+      await this.changeOwners(manifest as OwnerManifestBody, {
+        ...options,
+      });
+      return API_MESSAGE.PKG_CHANGED;
+    } else if (validationUtils.validatePublishSingleVersion(manifest)) {
+      // if continue, the version to be published does not exist
+      // we create a new package
+      debug('publish a new version');
+      const [mergedManifest, version, message] = await this.publishANewVersion(
+        manifest as Manifest,
+        {
+          ...options,
+        }
+      );
+      // send notification of publication (notification step, non transactional)
+      try {
+        const { name } = mergedManifest;
+        await this.notify(mergedManifest, `${name}@${version}`);
+        this.logger.info({ name, version }, 'notify for @{name}@@{version} has been sent');
+      } catch (err: any) {
+        this.logger.error({ err }, 'notify batch service has failed: @{err.message}');
+      }
+      return message;
+    } else if (validationUtils.validateUnPublishSingleVersion(manifest)) {
+      if (!options.allowUnpublish) {
+        throw errorUtils.getBadRequest(API_ERROR.UNSUPORTED_REGISTRY_CALL);
+      }
+      debug('unpublish a version');
+
+      await this.unPublishAPackage(manifest as UnPublishManifest, {
+        ...options,
+      });
+    } else {
+      debug('invalid body format');
+      this.logger.warn(
+        { packageName: options.name },
+        `wrong package format on publish a package @{packageName}`
+      );
+      throw errorUtils.getBadRequest(API_ERROR.UNSUPORTED_REGISTRY_CALL);
+    }
+  }
+
+  /**
+   * Read the stored manifest and apply `publish.check_owners` before
+   * `changePackage` takes the package lock. The locked path checks again.
+   */
+  private async getLocalManifestCheckOwnership(
+    name: string,
+    username: string | undefined
+  ): Promise<Manifest> {
+    const localPackage = await this.getPackageLocalMetadata(name);
+    await this.checkAllowedToChangePackage(localPackage, username);
+    return localPackage;
+  }
+
+  private async deprecate(manifest: Manifest, options: UpdateManifestOptions): Promise<void> {
+    const { name, requestOptions } = options;
+    debug('deprecating %s', name);
+
+    return this.changePackage(name, manifest, options.revision as string, {
+      username: requestOptions.username,
+    });
+  }
+
+  private async unPublishAPackage(manifest: UnPublishManifest, options: UpdateManifestOptions) {
+    const { requestOptions, name } = options;
+    debug('unpublish a package of %o', name);
+
+    await this.changePackage(name, manifest as Manifest, options.revision as string, {
+      username: requestOptions.username,
+    });
+
+    return API_MESSAGE.PKG_CHANGED;
+  }
+
+  private async changeOwners(
+    manifest: OwnerManifestBody,
+    options: UpdateManifestOptions
+  ): Promise<string> {
+    const { maintainers } = manifest;
+    const { requestOptions, name } = options;
+    debug('change owners of %o', name);
+    const { username } = requestOptions;
+    if (!username) {
+      throw errorUtils.getBadRequest('update owners only allowed for logged in users');
+    }
+    if (!maintainers || maintainers.length === 0) {
+      throw errorUtils.getBadRequest('maintainers field is required and must not be empty');
+    }
+
+    const localPackage = await this.getLocalManifestCheckOwnership(name, username);
+
+    // keep the request _rev; localPackage is only for versions/dist-tags shape
+    await this.changePackage(
+      name,
+      { ...localPackage, maintainers: maintainers as Author[], _rev: manifest._rev },
+      options.revision as string,
+      { username }
+    );
+
+    return API_MESSAGE.PKG_CHANGED;
+  }
+
+  /**
+   * Get local package, on fails return null.
+   * Errors are considered package not found.
+   * @param name
+   * @returns
+   */
+  private async getPackagelocalByName(name: string): Promise<Manifest | null> {
+    try {
+      return await this.getPackageLocalMetadata(name);
+    } catch {
+      debug('local package %s not found', name);
+      return null;
+    }
+  }
+
+  /**
+   * Convert tarball as string into a Buffer and validate the length.
+   * @param data the tarball data as string
+   * @returns
+   */
+  private getBufferManifest(data: string): Buffer {
+    const buffer = Buffer.from(data, 'base64');
+    if (buffer.length === 0) {
+      throw errorUtils.getBadData('refusing to accept zero-length file');
+    }
+    return buffer;
+  }
+
+  /**
+   * Verify if the package exists in the local storage
+   * (the package refers to the package.json), directory would return false.
+   * @param pkgName package name
+   * @returns boolean
+   */
+  private async hasPackage(pkgName: string): Promise<boolean> {
+    const storage: pluginUtils.StorageHandler = this.getPrivatePackageStorage(pkgName);
+    if (typeof storage === 'undefined') {
+      throw errorUtils.getNotFound();
+    }
+    const hasPackage = await storage.hasPackage(pkgName);
+    debug('has package %o is %o', pkgName, hasPackage);
+    return hasPackage;
+  }
+
+  /**
+   * Create a new package.
+   * This situation happens only of the package does not exist on the cache.
+   *
+   * @param body package metadata
+   * @param options
+   * @returns
+   */
+  private async publishANewVersion(
+    body: Manifest,
+    options: PublishOptions
+  ): Promise<[Manifest, string, string]> {
+    const { name } = options;
+    const username = options.requestOptions.username;
+    debug('publishing a new package for %o as %o', name, username);
+    let successResponseMessage;
+    const manifest: Manifest = { ...validationUtils.normalizeMetadata(body, name) };
+    const { _attachments, versions } = manifest;
+
+    // validation step, if _attachments is not an object throw error
+    // _attachments is need it for holding the tarball buffer in the local storage as file
+    // versions is need it for holding the version in the local storage as file
+    // _attachments and validation are required otherwise cannot continue.
+    if (isEmpty(_attachments)) {
+      debug('attachments are empty, cannot continue');
+      throw errorUtils.getBadRequest(API_ERROR.UNSUPORTED_REGISTRY_CALL);
+    }
+
+    // get the unique version available
+    const [versionToPublish] = Object.keys(versions);
+
+    // Scoped clients include the scope in the key; storage uses only the basename.
+    const [firstAttachmentKey] = Object.keys(_attachments);
+    const tarballName = basename(firstAttachmentKey);
+    if (
+      !validationUtils.validateName(firstAttachmentKey) ||
+      !validationUtils.validateName(tarballName)
+    ) {
+      throw errorUtils.getBadRequest(`invalid tarball name ${firstAttachmentKey}`);
+    }
+    const buffer = this.getBufferManifest(body._attachments[firstAttachmentKey].data as string);
+
+    try {
+      // we check if package exist already locally
+      const localManifest = await this.getPackagelocalByName(name);
+      // if continue, the version to be published does not exist
+      if (localManifest?.versions[versionToPublish] != null) {
+        debug('%s version %s already exists (locally)', name, versionToPublish);
+        throw errorUtils.getConflict();
+      }
+      const uplinksLook = this.config?.publish?.allow_offline === false;
+      // if execution get here, package does not exist locally, we search upstream
+      const remoteManifest = await this.checkPackageRemote(name, uplinksLook);
+      if (remoteManifest?.versions[versionToPublish] != null) {
+        debug('%s version %s already exists (upstream)', name, versionToPublish);
+        throw errorUtils.getConflict();
+      }
+
+      const hasPackageInStorage = await this.hasPackage(name);
+      if (!hasPackageInStorage) {
+        await this.createNewLocalCachePackage(name, username);
+        successResponseMessage = API_MESSAGE.PKG_CREATED;
+      } else {
+        await this.checkAllowedToChangePackage(localManifest as Manifest, username);
+        successResponseMessage = API_MESSAGE.PKG_CHANGED;
+      }
+    } catch (err: any) {
+      debug('error on change or update a package with %o', err.message);
+      this.logger.error({ err }, 'error on publish new version: @{err.message}');
+      throw err;
+    }
+
+    // 1. after tarball has been successfully uploaded, we update the version
+    try {
+      const tarballStats = await this.getTarballStats(versions[versionToPublish], buffer);
+      // Older package managers like npm6 do not send readme content as part of version but include it on root level
+      if (isEmpty(versions[versionToPublish].readme)) {
+        versions[versionToPublish].readme =
+          isNil(manifest.readme) === false ? String(manifest.readme) : '';
+      }
+      // addVersion will move the readme from the the published version to the root level
+      await this.addVersion(name, versionToPublish, versions[versionToPublish], null, tarballStats);
+    } catch (err: any) {
+      this.logger.error({ err }, 'updated version has failed: @{err.message}');
+      debug('error on create a version for %o with error %o', name, err.message);
+      throw err;
+    }
+
+    // 2. update and merge tags
+    let mergedManifest;
+    try {
+      // note: I could merge this with addVersion()
+      // 1. add version
+      // 2. merge versions
+      // 3. upload tarball
+      // 4. update once to the storage (easy peasy)
+      mergedManifest = await this.mergeTagsNext(name, manifest[DIST_TAGS]);
+    } catch (err: any) {
+      this.logger.error({ err }, 'merge version has failed: @{err.message}');
+      debug('error on create a version for %o with error %o', name, err.message);
+      // TODO: undo if this fails
+      // 1. remove updated version
+      throw err;
+    }
+
+    // 3. upload the tarball to the storage
+    try {
+      const readable = Readable.from(buffer);
+      await this.uploadTarball(name, tarballName, readable, {
+        signal: options.signal,
+      });
+      // re-read the stored tarball so the upload buffer is not held until an extraction slot frees
+      this.tarballMetadata?.schedule(name, tarballName, (signal) =>
+        this.getLocalTarball(name, tarballName, { signal })
+      );
+    } catch (err: any) {
+      this.logger.error({ err }, 'upload tarball has failed: @{err.message}');
+      // TODO: undo if this fails
+      // 1. remove updated version
+      // 2. remove new dist tags
+      throw err;
+    }
+
+    this.logger.info(
+      { name, version: versionToPublish },
+      'package @{name}@@{version} has been published'
+    );
+
+    return [mergedManifest, versionToPublish, successResponseMessage];
+  }
+
+  // TODO: pending implementation
+
+  private async notify(_manifest: Manifest, _message: string): Promise<void> {
+    return;
+  }
+
+  /**
+   * Wrap uploadTarballAsStream into a promise.
+   * @param name package name
+   * @param fileName tarball name
+   * @param contentReadable content as readable stream
+   * @param options
+   * @returns
+   */
+  public uploadTarball(
+    name: string,
+    fileName: string,
+    contentReadable: Readable,
+    { signal }
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.uploadTarballAsStream(name, fileName, {
+        signal,
+      })
+        .then((stream) => {
+          stream.on('error', (err) => {
+            debug(
+              'error on stream a tarball %o for %o with error %o',
+              'foo.tar.gz',
+              name,
+              err.message
+            );
+            reject(err);
+          });
+          stream.on('success', () => {
+            this.logger.debug(
+              { fileName, name },
+              'file @{fileName} for package @{name} has been successfully uploaded'
+            );
+            resolve();
+          });
+          return stream;
+        })
+        .then((stream) => {
+          // Cancellation may reach the destination while setup is still
+          // resolving. Preserve that error instead of piping into a destroyed stream.
+          if (stream.errored) {
+            throw stream.errored;
+          }
+          pipeline(contentReadable, stream, { signal })
+            .then(() => {
+              debug('success pipe upload tarball');
+            })
+            .catch(reject);
+        })
+        .catch((err) => {
+          // Destination setup can fail before a stream is returned.
+          contentReadable.destroy();
+          reject(err);
+        });
+    });
+  }
+
+  private async uploadTarballAsStream(
+    pkgName: string,
+    filename: string,
+    { signal }
+  ): Promise<PassThrough> {
+    debug(`add a tarball for %o`, pkgName);
+    assert(validationUtils.validateName(filename));
+
+    const shaOneHash = cryptoUtils.createTarballHash();
+    const transformHash = new Transform({
+      transform(chunk: any, _encoding: string, callback: any): void {
+        // measure the length for validation reasons
+        shaOneHash.update(chunk);
+        callback(null, chunk);
+      },
+    });
+    const uploadStream = new PassThrough();
+    const storage = this.getPrivatePackageStorage(pkgName);
+
+    // FUTURE: this validation could happen even before
+    if (pkgName === PROTO_NAME) {
+      process.nextTick((): void => {
+        uploadStream.emit('error', errorUtils.getForbidden());
+      });
+      return uploadStream;
+    }
+
+    // FIXME: this condition will never met, storage is always defined
+    if (!storage) {
+      process.nextTick((): void => {
+        uploadStream.emit('error', "can't upload this package storage is missing");
+      });
+      return uploadStream;
+    }
+
+    const fileDoesExist = await storage.hasTarball(filename);
+    if (fileDoesExist) {
+      process.nextTick((): void => {
+        uploadStream.emit('error', errorUtils.getConflict());
+      });
+    } else {
+      const localStorageWriteStream = await storage.writeTarball(filename, { signal });
+      // a failed write emits 'close' too — it must never reach the metadata update
+      let uploadFailed = false;
+
+      // Connect immediately: Writable streams buffer until ready. Waiting for
+      // 'open' would leave cancellation and source errors unable to close a
+      // destination that is still opening (or never emits 'open').
+      pipeline(uploadStream, transformHash, localStorageWriteStream, { signal }).catch(
+        (err: any) => {
+          // pipeline already destroyed the streams; an unhandled rejection
+          // here would kill the process
+          uploadFailed = true;
+          this.logger.warn(
+            { err, filename, pkgName },
+            'error uploading tarball @{filename} for @{pkgName}: @{err.message}'
+          );
+        }
+      );
+
+      // once the file descriptor has been closed
+      localStorageWriteStream.on('close', async () => {
+        if (uploadFailed || !localStorageWriteStream.writableFinished) {
+          debug('skip metadata update for failed upload %o for %o', filename, pkgName);
+          return;
+        }
+        try {
+          debug('uploaded tarball %o for %o', filename, pkgName);
+          // update the package metadata
+          await this.updatePackage(pkgName, async (data: Manifest): Promise<Manifest> => {
+            const newData: Manifest = { ...data };
+            debug('added _attachment for %o', pkgName);
+            newData._attachments[filename] = {
+              // TODO:  add integrity hash here
+              shasum: shaOneHash.digest('hex'),
+            };
+
+            return newData;
+          });
+          debug('emit success for %o', pkgName);
+          uploadStream.emit('success');
+        } catch (err: any) {
+          // FUTURE: if the update package fails, remove tarball to avoid left
+          // orphan tarballs
+          debug(
+            'something has failed on upload tarball %o for %o : %s',
+            filename,
+            pkgName,
+            err.message
+          );
+          uploadStream.emit('error', err);
+        }
+      });
+
+      // something went wrong writing into the local storage
+      localStorageWriteStream.on('error', async (err: any) => {
+        uploadFailed = true;
+        uploadStream.emit('error', err);
+      });
+    }
+
+    return uploadStream;
+  }
+
+  /**
+   * Add a new version to a package.
+   * @param name package name
+   * @param version version
+   * @param metadata version metadata
+   * @param tag tag of the version
+   */
+  private async addVersion(
+    name: string,
+    version: string,
+    metadata: Version,
+    tag: StringValue,
+    tarballStats: TarballDetails
+  ): Promise<void> {
+    debug(`add version %s package for %s`, version, name);
+    await this.updatePackage(name, async (data: Manifest): Promise<Manifest> => {
+      // keep latest readme in manifest (on root level)
+      data.readme = metadata.readme;
+      debug('%s readme mutated', name);
+      // removing other readmes depends on config
+      metadata = cleanUpReadme(metadata, metadata[DIST_TAGS], this.config?.publish?.keep_readmes);
+      metadata.contributors = normalizeContributors(metadata.contributors as Author[]);
+      debug('%s contributors normalized', name);
+
+      // Copy current owners to version
+      metadata.maintainers = data.maintainers;
+
+      // Update tarball stats
+      if (metadata.dist) {
+        metadata.dist.fileCount = tarballStats.fileCount;
+        metadata.dist.unpackedSize = tarballStats.unpackedSize;
+      }
+
+      // if uploaded tarball has a different shasum, it's very likely that we
+      // have some kind of error
+      if (validationUtils.isObject(metadata.dist) && typeof metadata.dist.tarball === 'string') {
+        const tarball = tarballUtils.extractTarballFromUrl(metadata.dist.tarball);
+        if (validationUtils.isObject(data._attachments[tarball])) {
+          if (
+            isNil(data._attachments[tarball].shasum) === false &&
+            isNil(metadata.dist.shasum) === false
+          ) {
+            if (data._attachments[tarball].shasum != metadata.dist.shasum) {
+              const errorMessage =
+                `shasum error, ` +
+                `${data._attachments[tarball].shasum} != ${metadata.dist.shasum}`;
+              throw errorUtils.getBadRequest(errorMessage);
+            }
+          }
+          if (tarball === '__proto__' || tarball === 'constructor' || tarball === 'prototype') {
+            throw errorUtils.getBadRequest('tarball name is not allowed');
+          }
+          data._attachments[tarball].version = version;
+        }
+
+        // if the time field doesn't exist, we create it, some old storage
+        // might not have it
+        // https://github.com/verdaccio/verdaccio/issues/740
+        if (isNil(data.time)) {
+          this.logger.warn(
+            { name },
+            'time field could not be found, it has been recreated for @{name}'
+          );
+          data.time = {};
+        }
+
+        // populate the time field  with the date of the version
+        const currentDate = new Date().toISOString();
+        data.time.modified = currentDate;
+        if (!data.time?.created) {
+          data.time.created = currentDate;
+        }
+
+        if (typeof data.time[version] === 'string') {
+          // this should not h appen, but we keep this check to avoid or easy bug report
+          this.logger.warn(
+            { name, version },
+            'the time for the version @{version} already exists, it has been overwritten for package @{name}'
+          );
+        }
+        data.time[version] = currentDate;
+        debug('time added for %s version %s', name, version);
+      }
+
+      data.versions[version] = metadata;
+      // TODO: review this method, it's a bit ugly
+      tagVersion(data, version, tag);
+
+      try {
+        debug('%s add on database', name);
+        await this.localStorage.getStoragePlugin().add(name);
+        this.logger.debug({ name, version }, 'version @{version} added to database for @{name}');
+      } catch (err: any) {
+        throw errorUtils.getBadData(err.message);
+      }
+      return data;
+    });
+  }
+
+  /**
+   * Create an empty new local cache package without versions.
+   * @param name name of the package
+   * @returns
+   */
+  private async createNewLocalCachePackage(
+    name: string,
+    username: string | undefined
+  ): Promise<void> {
+    debug('creating new package %o for user %o', name, username);
+    const storage: pluginUtils.StorageHandler = this.getPrivatePackageStorage(name);
+
+    if (!storage) {
+      debug(`storage is missing for %o package cannot be added`, name);
+      throw errorUtils.getNotFound('this package cannot be added');
+    }
+
+    const currentTime = new Date().toISOString();
+    const defaultManifest = generatePackageTemplate(name);
+    const packageData: Manifest = {
+      ...defaultManifest,
+      _rev: generateRevision(defaultManifest._rev),
+      time: {
+        created: currentTime,
+        modified: currentTime,
+      },
+    };
+
+    // Set initial package owner
+    // TODO: Add email of user
+    packageData.maintainers =
+      username && username.length > 0
+        ? [{ name: username, email: '' }]
+        : [{ name: ANONYMOUS_USER, email: '' }];
+
+    try {
+      await storage.createPackage(name, packageData);
+      this.logger.info({ name }, 'created new package @{name}');
+      return;
+    } catch (err: any) {
+      if (
+        err !== null &&
+        (err.code === STORAGE.FILE_EXIST_ERROR || err.code === HTTP_STATUS.CONFLICT)
+      ) {
+        debug(`error on creating a package for %o with error %o`, name, err.message);
+        throw errorUtils.getConflict();
+      }
+      return;
+    }
+  }
+
+  /**
+   *
+   * @param name package name
+   * @param uplinksLook
+   * @returns
+   */
+  private async checkPackageRemote(name: string, uplinksLook: boolean): Promise<Manifest | null> {
+    try {
+      // we provide a null manifest, thus the manifest returned will be the remote one
+      const [remoteManifest, upLinksErrors] = await this.syncUplinksMetadata(name, null, {
+        uplinksLook,
+      });
+
+      // checking package exist already
+      if (isNil(remoteManifest) === false) {
+        throw errorUtils.getConflict(API_ERROR.PACKAGE_EXIST);
+      }
+
+      for (let errorItem = 0; errorItem < upLinksErrors.length; errorItem++) {
+        // checking error
+        // if uplink fails with a status other than 404, we report failure
+        if (isNil(upLinksErrors[errorItem][0]) === false) {
+          if (upLinksErrors[errorItem][0].status !== HTTP_STATUS.NOT_FOUND) {
+            if (upLinksErrors) {
+              return null;
+            }
+
+            throw errorUtils.getServiceUnavailable(API_ERROR.UPLINK_OFFLINE_PUBLISH);
+          }
+        }
+      }
+      return remoteManifest;
+    } catch (err: any) {
+      if (err && err.status !== HTTP_STATUS.NOT_FOUND) {
+        throw err;
+      }
+      return null;
+    }
+  }
+
+  private setDefaultRevision(json: Manifest): Manifest {
+    // calculate revision from couch db
+    if (typeof json._rev !== 'string') {
+      json._rev = STORAGE.DEFAULT_REVISION;
+    }
+
+    // this is intended in debug mode we do not want modify the store revision
+    if (isNil(this.config._debug)) {
+      const prev = json._rev;
+      json._rev = generateRevision(json._rev);
+      debug('revision metadata for %o updated from %o to %o', json.name, prev, json._rev);
+    }
+
+    return json;
+  }
+
+  private async writePackage(name: string, json: Manifest): Promise<void> {
+    const storage: any = this.getPrivatePackageStorage(name);
+    if (isNil(storage)) {
+      // TODO: replace here 500 error
+      throw errorUtils.getBadData();
+    }
+    await storage.savePackage(name, this.setDefaultRevision(json));
+  }
+
+  /**
+   * @param {*} name package name
+   * @param {*} updateHandler function(package, cb) - update function
+   * @param {*} callback callback that gets invoked after it's all updated
+   * @return {Function}
+   */
+  private async updatePackage(
+    name: string,
+    updateHandler: (manifest: Manifest) => Promise<Manifest>
+  ): Promise<Manifest> {
+    const storage: pluginUtils.StorageHandler = this.getPrivatePackageStorage(name);
+
+    if (!storage) {
+      throw errorUtils.getNotFound();
+    }
+
+    // Save before this callback returns. The plugin releases the package lock
+    // then, so a later write can overwrite an owner change committed in between.
+    return storage.updatePackage(name, async (manifest: Manifest): Promise<Manifest> => {
+      const updated = await updateHandler(manifest);
+      try {
+        await this.writePackage(name, normalizePackage(updated));
+      } catch (err: any) {
+        if (err.code === resourceNotAvailable) {
+          throw errorUtils.getInternalError('resource temporarily unavailable');
+        } else if (err.code === noSuchFile) {
+          throw errorUtils.getNotFound();
+        } else {
+          throw err;
+        }
+      }
+      return updated;
+    });
+  }
+
+  /**
+   *
+   * @protected
+   * @param {IGetPackageOptionsNext} options
+   * @return {*}  {Promise<[Manifest, any[]]>}
+   * @memberof AbstractStorage
+   */
+  private async getPackage(options: IGetPackageOptionsNext): Promise<[Manifest, any[]]> {
+    const { name } = options;
+    debug('get package for %o', name);
+    let data: Manifest | null = null;
+
+    try {
+      data = await this.getPackageLocalMetadata(name);
+    } catch (err: any) {
+      // if error code is higher than 500 stop here
+      if (err && (!err.status || err.status >= HTTP_STATUS.INTERNAL_ERROR)) {
+        throw err;
+      }
+    }
+
+    // if we can't get the local metadata, we try to get the remote metadata
+    // if we do to have local metadata, we try to update it with the upstream registry
+    debug('sync uplinks for %o', name);
+    const [remoteManifest, upLinksErrors] = await this.syncUplinksMetadata(name, data, {
+      uplinksLook: options.uplinksLook,
+      retry: options.retry,
+      remoteAddress: options.requestOptions.remoteAddress,
+      // etag??
+    });
+
+    // if both local data and upstream data are empty, we throw an error
+    if (!remoteManifest && data === null) {
+      throw errorUtils.getNotFound(`${API_ERROR.NOT_PACKAGE_UPLINK}: ${name}`);
+      // if the remote manifest is empty, we return local data
+    } else if (!remoteManifest && data !== null) {
+      // no data on uplinks
+      const [filteredData, filtersErrors] = await this.applyFilters(data);
+      return [filteredData, [...upLinksErrors, ...filtersErrors]];
+    }
+
+    // if we have local data, we try to update it with the upstream registry
+    const normalizedPkg = Object.assign({}, remoteManifest, {
+      // FIXME: clean up  mutation within cleanUpLinksRef method
+      ...normalizeDistTags(cleanUpLinksRef(remoteManifest as Manifest, options.keepUpLinkData)),
+      _attachments: {},
+    });
+
+    debug('no sync uplinks errors %o for %o', upLinksErrors?.length, name);
+    return [normalizedPkg, upLinksErrors];
+  }
+
+  /**
+   * Function fetches package metadata from uplinks and synchronizes it with local data
+     if package is available locally, it MUST be provided in pkginfo.
+
+    Using this example:
+
+    "jquery":
+      access: $all
+      publish: $authenticated
+      unpublish: $authenticated
+      # two uplinks setup
+      proxy: ver npmjs
+      # one uplink setup
+      proxy: npmjs
+
+    A package requires uplinks syncronization if the proxy section is defined. There can be
+    more than one uplink. The more uplinks are defined, the longer the request will take.
+    The requests are made in serial and if 1st call fails, the second will be triggered, otherwise
+    the 1st will reply and others will be discarded. The order is important.
+
+    Errors on uplinks that are considered are time outs, connection fails, and http status 304.
+    In these cases the request returns empty body and we want ask next on the list if has fresh
+    updates.
+   */
+  public async syncUplinksMetadata(
+    name: string,
+    localManifest: Manifest | null,
+    options: Partial<ISyncUplinksOptions> = {}
+  ): Promise<[Manifest | null, any]> {
+    let found = localManifest !== null;
+    let syncManifest: Manifest | null = null;
+    let upLinks: string[] = [];
+    const hasToLookIntoUplinks = isNil(options.uplinksLook) || options.uplinksLook;
+    debug('is sync uplink enabled %o', hasToLookIntoUplinks);
+
+    if (hasToLookIntoUplinks) {
+      upLinks = getProxiesForPackage(name, this.config.packages);
+      debug('uplinks found for %o: %o', name, upLinks);
+    }
+
+    //  if no uplinks match we return the local manifest
+    if (upLinks.length === 0) {
+      debug('no uplinks found for %o, upstream update aborted', name);
+      if (isNil(localManifest)) {
+        return [null, []];
+      }
+
+      return await this.applyFilters(localManifest);
+    }
+
+    const uplinksErrors: any[] = [];
+    let syncedUplinkName: string | undefined;
+    // we resolve uplinks async in series, first come first serve
+    for (const uplink of upLinks) {
+      try {
+        const tempManifest = isNil(localManifest)
+          ? generatePackageTemplate(name)
+          : { ...localManifest };
+        syncManifest = await this.mergeCacheRemoteMetadata(
+          this.uplinks[uplink],
+          tempManifest,
+          options
+        );
+        debug('syncing on uplink %o', syncManifest.name);
+        if (isNil(syncManifest) === false) {
+          found = true;
+          syncedUplinkName = uplink;
+          break;
+        }
+      } catch (err: any) {
+        const uplinkName = uplink;
+        const upLinkMeta = localManifest?._uplinks?.[uplinkName];
+        const etag = upLinkMeta?.etag;
+        // A 304 means the uplink confirms our cached manifest is current; refresh fetched timestamp.
+        if (
+          err.code === HTTP_STATUS.NOT_MODIFIED &&
+          localManifest !== null &&
+          validationUtils.isObject(upLinkMeta) &&
+          typeof etag === 'string'
+        ) {
+          syncManifest = updateUpLinkMetadata(uplinkName, localManifest, etag);
+          localManifest = syncManifest;
+          found = true;
+          syncedUplinkName = uplinkName;
+          continue;
+        }
+        debug('error captured on uplink %o', err.message);
+        uplinksErrors.push(err);
+        // enforce use next uplink on the list
+        continue;
+      }
+    }
+
+    if (found && syncManifest !== null) {
+      // updates the local cache manifest with fresh data
+      const updatedCacheManifest = await this.updateVersionsNext(
+        name,
+        syncManifest,
+        syncedUplinkName
+      );
+      // plugin filter applied to the manifest
+      const [filteredManifest, filtersErrors] = await this.applyFilters(updatedCacheManifest);
+      return [filteredManifest, [...uplinksErrors, ...filtersErrors]];
+    } else if (found && isNil(localManifest) === false) {
+      // apply filter to local manifest (it is cached in unfiltered state)
+      const [filteredManifest, filtersErrors] = await this.applyFilters(localManifest);
+      return [filteredManifest, [...uplinksErrors, ...filtersErrors]];
+    } else {
+      // if is not found, calculate the right error to return
+      debug('uplinks sync failed with %o errors', uplinksErrors.length);
+      for (const err of uplinksErrors) {
+        const { code } = err;
+        if (code === HTTP_STATUS.SERVICE_UNAVAILABLE) {
+          debug('uplinks sync failed with timeout error');
+          throw err;
+        }
+        // we bubble up the 304 special error case
+        if (code === HTTP_STATUS.NOT_MODIFIED) {
+          debug('uplinks sync failed with 304 error');
+          throw err;
+        }
+      }
+      debug('uplinks sync failed with no package found');
+
+      throw errorUtils.getNotFound(API_ERROR.NO_PACKAGE);
+    }
+  }
+
+  /**
+   * Merge a manifest with a remote manifest.
+   *
+   * If the uplinks are not available, the local manifest is returned.
+   * If the uplinks are available, the local manifest is merged with the remote one.
+   *
+   *
+   * @param uplink uplink instance
+   * @param cachedManifest the local cached manifest
+   * @param options options
+   * @returns Returns a promise that resolves with the merged manifest.
+   */
+  private async mergeCacheRemoteMetadata(
+    uplink: IProxy,
+    cachedManifest: Manifest,
+    options: Partial<ISyncUplinksOptions>
+  ): Promise<Manifest> {
+    // we store which uplink is updating the manifest
+    const upLinkMeta = cachedManifest._uplinks[uplink.uplinkName];
+    let _cacheManifest = { ...cachedManifest };
+
+    if (validationUtils.isObject(upLinkMeta)) {
+      const fetched = upLinkMeta.fetched;
+
+      // we check the uplink cache is fresh
+      if (fetched && Date.now() - fetched < uplink.maxage) {
+        debug('returning cached manifest for %o', uplink.uplinkName);
+        return cachedManifest;
+      }
+    }
+
+    const remoteOptions = Object.assign({}, options, {
+      etag: upLinkMeta?.etag,
+    });
+
+    // get the latest metadata from the uplink
+    const [remoteManifest, etag] = await uplink.getRemoteMetadata(
+      _cacheManifest.name,
+      remoteOptions
+    );
+
+    try {
+      _cacheManifest = validationUtils.normalizeMetadata(_cacheManifest, _cacheManifest.name);
+    } catch (err: any) {
+      this.logger.error({ err }, 'package.json validating error @{!err?.message}\n@{err.stack}');
+      throw err;
+    }
+    // updates the _uplink metadata fields, cache, etc
+    _cacheManifest = updateUpLinkMetadata(uplink.uplinkName, _cacheManifest, etag);
+    // merge time field cache and remote
+    _cacheManifest = mergeUplinkTimeIntoLocalNext(_cacheManifest, remoteManifest);
+    // update the _uplinks field in the cache
+    _cacheManifest = updateVersionsHiddenUpLinkNext(_cacheManifest, uplink);
+    try {
+      // merge versions from remote into the cache
+      _cacheManifest = mergeVersions(_cacheManifest, remoteManifest);
+      // record upstream owners as origin-scoped identities so a local account
+      // cannot satisfy check_owners; never overwrite recorded owners
+      if (
+        (_cacheManifest[MAINTAINERS] ?? []).length === 0 &&
+        Array.isArray(remoteManifest[MAINTAINERS]) &&
+        remoteManifest[MAINTAINERS].length > 0
+      ) {
+        _cacheManifest[MAINTAINERS] = scopeUpstreamMaintainers(
+          remoteManifest[MAINTAINERS],
+          uplink.uplinkName
+        );
+      }
+      return _cacheManifest;
+    } catch (err: any) {
+      this.logger.error({ err }, 'package.json merge has failed @{!err?.message}\n@{err.stack}');
+      throw err;
+    }
+  }
+
+  /**
+   * Apply filters to manifest.
+   * @param manifest
+   * @returns
+   */
+  public async applyFilters(manifest: Manifest): Promise<[Manifest, any]> {
+    return applyManifestFilters(manifest, this.filters ?? [], this.logger);
+  }
+
+  private _createNewPackage(name: string): Manifest {
+    return normalizePackage(generatePackageTemplate(name));
+  }
+
+  /**
+   * Ensure the dist file remains as the same protocol
+   * @param {Object} hash metadata
+   * @param {String} upLinkKey registry key
+   * @private
+   */
+  private updateUplinkToRemoteProtocol(hash: DistFile, upLinkKey: string): void {
+    // if we got this information from a known registry,
+    // use the same protocol for the tarball
+    try {
+      const tarballUrl = new URL(hash.url);
+      const uplinkUrl = new URL(this.config.uplinks[upLinkKey].url);
+
+      if (uplinkUrl.host === tarballUrl.host) {
+        tarballUrl.protocol = uplinkUrl.protocol;
+        hash.registry = upLinkKey;
+        hash.url = tarballUrl.href;
+      }
+    } catch {
+      // ignore invalid URL or uplink config
+    }
+  }
+
+  /**
+   * Create or read a package.
+   *
+   * If the package already exists, it will be read.
+   * If the package is not found, it will be created.
+   * If the error is anything else will throw an error
+   *
+   * @param {*} pkgName
+   * @param {*} callback
+   * @return {Function}
+   */
+  private async readCreatePackage(pkgName: string): Promise<Manifest> {
+    const storage: any = this.getPrivatePackageStorage(pkgName);
+    if (isNil(storage)) {
+      throw errorUtils.getInternalError('storage could not be found');
+    }
+
+    try {
+      const result: Manifest = await storage.readPackage(pkgName);
+      return normalizePackage(result);
+    } catch (err: any) {
+      if (err.code === STORAGE.NO_SUCH_FILE_ERROR || err.code === HTTP_STATUS.NOT_FOUND) {
+        return this._createNewPackage(pkgName);
+      } else {
+        this.logger.error(
+          { err, file: STORAGE.PACKAGE_FILE_NAME },
+          'error reading @{file}: @{err.message}'
+        );
+
+        throw errorUtils.getInternalError();
+      }
+    }
+  }
+
+  /**
+    Updates the local cache with the merge from the remote/client manifest.
+
+    The steps are the following.
+    1. Get the latest version of the package from the cache.
+    2. If does not exist will return a
+
+    @param name
+    @param remoteManifest
+    @returns return a merged manifest.
+  */
+  public async updateVersionsNext(
+    name: string,
+    remoteManifest: Manifest,
+    uplinkName?: string
+  ): Promise<Manifest> {
+    debug(`updating versions for package %o`, name);
+    const cacheManifest: Manifest = await this.readCreatePackage(name);
+    let change = false;
+    // updating readme
+    cacheManifest.readme = getLatestReadme(remoteManifest);
+    if (remoteManifest.readme !== cacheManifest.readme) {
+      debug('manifest readme updated for %o', name);
+      change = true;
+    }
+
+    debug('updating new remote versions');
+    let newVersions = 0;
+    for (const versionId in remoteManifest.versions) {
+      // if detect a new remote version does not exist cache
+      if (isNil(cacheManifest.versions[versionId])) {
+        newVersions++;
+        debug('new version from upstream %o', versionId);
+        let version = remoteManifest.versions[versionId];
+
+        // removing readmes depends on config
+        version = cleanUpReadme(
+          version,
+          remoteManifest[DIST_TAGS],
+          this.config?.publish?.keep_readmes
+        );
+        version.contributors = normalizeContributors(version.contributors as Author[]);
+
+        change = true;
+        cacheManifest.versions[versionId] = version;
+
+        if (version?.dist?.tarball) {
+          const filename = tarballUtils.extractTarballFromUrl(version.dist.tarball);
+          // store a fast access to the dist file by tarball name
+          // it does NOT overwrite any existing records
+          if (isNil(cacheManifest?._distfiles[filename])) {
+            const hash: DistFile = (cacheManifest._distfiles[filename] = {
+              url: version.dist.tarball,
+              sha: version.dist.shasum,
+            });
+            // the symbol is only set on cached versions, so the syncing uplink is the usual source
+            const upLink: string = version[Symbol.for('__verdaccio_uplink')] ?? uplinkName;
+            if (isNil(upLink) === false) {
+              this.updateUplinkToRemoteProtocol(hash, upLink);
+            }
+          }
+        }
+      }
+    }
+    if (newVersions > 0) {
+      debug('new versions from upstream: %o', newVersions);
+    } else {
+      debug('no new versions from upstream');
+    }
+
+    debug('update maintainers');
+    // empty maintainers skip check_owners; copy upstream owners once, scoped so
+    // they cannot match a local user, and never replace recorded local owners
+    if (
+      (cacheManifest[MAINTAINERS] ?? []).length === 0 &&
+      Array.isArray(remoteManifest[MAINTAINERS]) &&
+      remoteManifest[MAINTAINERS].length > 0
+    ) {
+      cacheManifest[MAINTAINERS] = scopeUpstreamMaintainers(
+        remoteManifest[MAINTAINERS],
+        uplinkName ?? 'remote'
+      );
+      change = true;
+    }
+
+    debug('update dist-tags');
+    for (const tag in remoteManifest[DIST_TAGS]) {
+      if (
+        !cacheManifest[DIST_TAGS][tag] ||
+        cacheManifest[DIST_TAGS][tag] !== remoteManifest[DIST_TAGS][tag]
+      ) {
+        change = true;
+        cacheManifest[DIST_TAGS][tag] = remoteManifest[DIST_TAGS][tag];
+      }
+    }
+
+    for (const up in remoteManifest._uplinks) {
+      if (Object.prototype.hasOwnProperty.call(remoteManifest._uplinks, up)) {
+        const need_change =
+          !validationUtils.isObject(cacheManifest._uplinks[up]) ||
+          remoteManifest._uplinks[up].etag !== cacheManifest._uplinks[up].etag ||
+          remoteManifest._uplinks[up].fetched !== cacheManifest._uplinks[up].fetched;
+
+        if (need_change) {
+          change = true;
+          cacheManifest._uplinks[up] = remoteManifest._uplinks[up];
+        }
+      }
+    }
+
+    debug('update time');
+    if ('time' in remoteManifest && !isEqual(cacheManifest.time, remoteManifest.time)) {
+      cacheManifest.time = remoteManifest.time;
+      change = true;
+    }
+
+    if (change) {
+      debug('updating package info %o', name);
+      await this.writePackage(name, cacheManifest);
+      return cacheManifest;
+    } else {
+      return cacheManifest;
+    }
+  }
+
+  private async getTarballStats(version: Version, buffer: Buffer): Promise<TarballDetails> {
+    if (
+      version.dist == undefined ||
+      version.dist?.fileCount == undefined ||
+      version.dist?.unpackedSize == undefined
+    ) {
+      debug('tarball stats not found, calculating');
+      return await getTarballDetails(buffer);
+    } else {
+      debug('tarball stats found');
+      return { fileCount: version.dist.fileCount, unpackedSize: version.dist.unpackedSize };
+    }
+  }
+
+  private async checkAllowedToChangePackage(manifest: Manifest, username: string | undefined) {
+    // Checks to perform if config "publish:check_owners" is true
+    debug('check if user %o is an owner and allowed to change package', username);
+    // if name of owner is not included in list of maintainers, then throw an error
+    // packages owned by anonymous user are allowed to be changed by any user
+    if (
+      this.config?.publish?.check_owners === true &&
+      manifest.maintainers &&
+      manifest.maintainers.length > 0 &&
+      !manifest.maintainers.some((maintainer) => maintainerAllowsLocalUser(maintainer, username))
+    ) {
+      this.logger.error({ username }, '@{username} is not a maintainer (package owner)');
+      throw errorUtils.getForbidden('only owners are allowed to change package');
+    }
+  }
+}
+
+export { Storage };

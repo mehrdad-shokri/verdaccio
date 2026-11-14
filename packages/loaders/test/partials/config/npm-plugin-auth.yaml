@@ -1,0 +1,8 @@
+# require('verdaccio-auth-fake-plugin') as dependency
+#
+# "devDependencies": {
+#   "verdaccio-auth-fake-plugin": "1.0.0-next-9.0"
+# }
+auth:
+  auth-fake-plugin:
+    enabled: true

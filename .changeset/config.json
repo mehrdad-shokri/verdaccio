@@ -1,0 +1,24 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@4.0.1/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "format": "oxfmt",
+  "commit": false,
+  "fixed": [
+    [
+      "verdaccio",
+      "@verdaccio/cli",
+      "@verdaccio/core",
+      "@verdaccio/config",
+      "@verdaccio/node-api",
+      "@verdaccio/ui-theme"
+    ]
+  ],
+  "ignoredPackages": ["@verdaccio/local-publish"],
+  "privatePackages": {
+    "version": true,
+    "tag": false
+  },
+  "access": "public",
+  "baseBranch": "master",
+  "updateInternalDependencies": "patch"
+}

@@ -1,0 +1,113 @@
+import buildDebug from 'debug';
+import type { Router } from 'express';
+
+import type { Auth } from '@verdaccio/auth';
+import { HEADERS, HEADER_TYPE, reqUtils, stringUtils } from '@verdaccio/core';
+import { PACKAGE_API_ENDPOINTS, allow, getRequestOptions } from '@verdaccio/middleware';
+import { Storage } from '@verdaccio/store';
+import type { Logger } from '@verdaccio/types';
+
+import type { $NextFunctionVer, $RequestExtend, $ResponseExtend } from '../types/custom';
+
+const debug = buildDebug('verdaccio:api:package');
+
+export default function (route: Router, auth: Auth, storage: Storage, logger: Logger): void {
+  const can = allow(auth, {
+    beforeAll: (a, b) => logger.trace(a, b),
+    afterAll: (a, b) => logger.trace(a, b),
+  });
+  route.get(
+    PACKAGE_API_ENDPOINTS.get_package_by_version,
+    can('access'),
+    async function (
+      req: $RequestExtend,
+      _res: $ResponseExtend,
+      next: $NextFunctionVer
+    ): Promise<void> {
+      const name = reqUtils.paramToString(req.params.package);
+      const version = reqUtils.paramToString(req.params.version) || undefined;
+      debug('get package by version: %o %o', name, version);
+      const abbreviated =
+        stringUtils.getByQualityPriorityValue(req.get('Accept')) === Storage.ABBREVIATED_HEADER;
+      debug('abbreviated: %o', abbreviated);
+
+      const requestOptions = getRequestOptions(req);
+
+      try {
+        const manifest = await storage.getPackageByOptions({
+          name,
+          uplinksLook: true,
+          abbreviated,
+          version,
+          requestOptions,
+        });
+        if (abbreviated) {
+          debug('abbreviated response');
+          _res.setHeader(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON_INSTALL_CHARSET);
+        } else {
+          debug('full response');
+          _res.setHeader(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON);
+        }
+
+        next(manifest);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  route.get(
+    PACKAGE_API_ENDPOINTS.get_package_tarball,
+    can('access'),
+    async function (req: $RequestExtend, res: $ResponseExtend): Promise<void> {
+      const pkgName = reqUtils.paramToString(req.params.package);
+      const filename = reqUtils.paramToString(req.params.filename);
+      const abort = new AbortController();
+      try {
+        debug('downloading tarball %o', filename);
+        const stream = (await storage.getTarball(pkgName, filename, {
+          signal: abort.signal,
+          // TODO: review why this param
+          // enableRemote: true,
+        })) as any;
+
+        stream.on('content-length', (size) => {
+          debug('tarball size %o', size);
+          // the size event races against the first data chunk; setting a
+          // header after they are flushed would throw and kill the process
+          if (!res.headersSent) {
+            res.header(HEADER_TYPE.CONTENT_LENGTH, size);
+          }
+        });
+
+        stream.once('error', (err) => {
+          debug('error on download tarball %o', err);
+          if (res.headersSent) {
+            // The 200 + headers are already on the wire (streaming had started),
+            // so an error status can no longer be sent; destroying the response
+            // is the only way to signal the failure — otherwise `pipe` just
+            // unpipes and the client waits forever on a half-sent body.
+            debug('headers already sent, destroying response for %o', req.url);
+            res.destroy(err);
+            return;
+          }
+          // The octet-stream header was set optimistically for the download;
+          // the error body is JSON (matching registry.npmjs.org), so let the
+          // error formatter pick the content type.
+          res.removeHeader(HEADERS.CONTENT_TYPE);
+          res.locals.report_error(err);
+        });
+
+        req.on('abort', () => {
+          debug('request aborted for %o', req.url);
+          abort.abort();
+        });
+
+        res.header(HEADERS.CONTENT_TYPE, HEADERS.OCTET_STREAM);
+        stream.pipe(res);
+      } catch (err: any) {
+        res.locals.report_error(err);
+      }
+    }
+  );
+}

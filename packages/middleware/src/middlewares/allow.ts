@@ -1,0 +1,67 @@
+import buildDebug from 'debug';
+
+import { API_ERROR, errorUtils, reqUtils, tarballUtils } from '@verdaccio/core';
+
+import type { $NextFunctionVer, $RequestExtend, $ResponseExtend } from '../types';
+
+const debug = buildDebug('verdaccio:middleware:allow');
+
+export function allow<T>(
+  auth: T,
+  options = {
+    beforeAll: (_a: any, _b: any) => {},
+
+    afterAll: (_a: any, _b: any) => {},
+  }
+): Function {
+  const { beforeAll, afterAll } = options;
+  return function (action: string): Function {
+    return function (req: $RequestExtend, res: $ResponseExtend, next: $NextFunctionVer): void {
+      req.pause();
+      const scope = reqUtils.paramToString(req.params.scope);
+      const name = reqUtils.paramToString(req.params.package);
+      const version = reqUtils.paramToString(req.params.version);
+      const filename = reqUtils.paramToString(req.params.filename);
+      const packageName = scope ? `${scope}/${name}` : name;
+      const packageVersion = filename
+        ? tarballUtils.getVersionFromTarball(filename)
+        : version
+          ? version
+          : undefined;
+      const remote_user = req.remote_user;
+      debug(
+        'check if user %o can %o package %o version %o',
+        remote_user?.name,
+        action,
+        packageName,
+        packageVersion
+      );
+      beforeAll?.(
+        { action, user: remote_user?.name },
+        `[middleware/allow][@{action}] allow for @{user}`
+      );
+      auth['allow_' + action](
+        { packageName, packageVersion },
+        remote_user,
+        function (error, allowed): void {
+          req.resume();
+          if (error) {
+            debug('user is NOT allowed to %o', action);
+            next(error);
+          } else if (allowed) {
+            debug('user is allowed to %o', action);
+            afterAll?.(
+              { action, user: remote_user?.name },
+              `[middleware/allow][@{action}] allowed for @{user}`
+            );
+            next();
+          } else {
+            // last plugin (that's our built-in one) returns either
+            // cb(err) or cb(null, true), so this should never happen
+            throw errorUtils.getInternalError(API_ERROR.PLUGIN_ERROR);
+          }
+        }
+      );
+    };
+  };
+}

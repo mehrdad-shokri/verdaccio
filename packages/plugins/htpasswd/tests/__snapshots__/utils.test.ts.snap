@@ -1,0 +1,18 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`addUserToHTPasswd - bcrypt > should throw an error for incorrect username with space 1`] = `[InternalServerError: username should not contain non-uri-safe characters]`;
+
+exports[`generateHtpasswdLine > should correctly generate line for crypt 1`] = `
+"username:$66to3JK5RgZM:autocreated 2018-01-14T11:17:40.712Z
+"
+`;
+
+exports[`generateHtpasswdLine > should correctly generate line for md5 1`] = `
+"username:$apr1$MMMMMMMM$2lGUwLC3NFfN74jH51z1W.:autocreated 2018-01-14T11:17:40.712Z
+"
+`;
+
+exports[`generateHtpasswdLine > should correctly generate line for sha1 1`] = `
+"username:{SHA}W6ph5Mm5Pz8GgiULbPgzG37mj9g=:autocreated 2018-01-14T11:17:40.712Z
+"
+`;

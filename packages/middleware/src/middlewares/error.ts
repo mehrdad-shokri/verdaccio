@@ -1,0 +1,84 @@
+import buildDebug from 'debug';
+import type { HttpError } from 'http-errors';
+import { isError, isNil, noop } from 'lodash-es';
+
+import type { VerdaccioError } from '@verdaccio/core';
+import { API_ERROR, HTTP_STATUS } from '@verdaccio/core';
+import type { Logger } from '@verdaccio/types';
+
+import type { $NextFunctionVer, $RequestExtend, $ResponseExtend } from '../types';
+
+const debug = buildDebug('verdaccio:middleware:error');
+
+export const handleError = (logger: Logger) =>
+  function handleError(
+    err: HttpError,
+    req: $RequestExtend,
+    res: $ResponseExtend,
+    next: $NextFunctionVer
+  ) {
+    debug('error handler init');
+    if (isError(err)) {
+      debug('is native error');
+      if (err.code === 'ECONNABORT' && res.statusCode === HTTP_STATUS.NOT_MODIFIED) {
+        return next();
+      }
+      if (typeof res.locals.report_error !== 'function') {
+        debug('is locals error report ref');
+        // in case of very early error this middleware may not be loaded before error is generated
+        // fixing that
+        errorReportingMiddleware(logger)(req, res, noop);
+      }
+      debug('set locals error report ref');
+      res.locals.report_error(err);
+    } else {
+      // Fall to Middleware.final
+      debug('no error to report, jump next layer');
+      return next(err);
+    }
+  };
+
+// Middleware
+export const errorReportingMiddleware = (logger: Logger) =>
+  function errorReportingMiddleware(
+    req: $RequestExtend,
+    res: $ResponseExtend,
+    next: $NextFunctionVer
+  ): void {
+    debug('error report middleware start');
+    res.locals.report_error =
+      res.locals.report_error ||
+      function (err: VerdaccioError): void {
+        if (err.status && err.status >= HTTP_STATUS.BAD_REQUEST && err.status < 600) {
+          debug('is error > 409 %o', err?.status);
+          if (isNil(res.headersSent) === false) {
+            debug('send status %o', err?.status);
+            res.status(err.status);
+            debug('next layer %o', err?.message);
+            next({ error: err.message || API_ERROR.UNKNOWN_ERROR });
+          }
+        } else {
+          debug('is error < 409 %o', err?.status);
+          logger.error({ err: err }, 'unexpected error: @{!err.message}\n@{err.stack}');
+          if (!res.status || !res.send) {
+            // TODO: decide which debug keep
+            logger.error('this is an error in express.js, please report this');
+            debug('this is an error in express.js, please report this, destroy response %o', err);
+            res.destroy();
+          } else if (!res.headersSent) {
+            debug('send internal error %o', err);
+            res.status(HTTP_STATUS.INTERNAL_ERROR);
+            next({ error: API_ERROR.INTERNAL_SERVER_ERROR });
+          } else {
+            // Headers already sent: an error status can no longer be delivered,
+            // so terminate the connection — leaving it open would make the
+            // client wait forever on a response that will never complete.
+            debug('headers already sent, destroying response %o', err);
+            res.destroy(err);
+          }
+        }
+      };
+
+    debug('error report middleware end (skip next layer) next()');
+    next();
+  };

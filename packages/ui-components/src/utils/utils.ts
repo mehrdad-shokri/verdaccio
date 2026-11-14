@@ -1,0 +1,181 @@
+import dayjs from 'dayjs';
+import localizedFormat from 'dayjs/plugin/localizedFormat';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import i18next from 'i18next';
+
+import type { UpLinks } from '@verdaccio/types';
+
+import type { Time } from '../types/packageMeta';
+import { isURL } from './url';
+
+export const TIMEFORMAT = 'L LTS';
+
+dayjs.extend(relativeTime);
+dayjs.extend(localizedFormat);
+
+/**
+ * Formats license field for webui.
+ * @see https://docs.npmjs.com/files/package.json#license
+ */
+export function formatLicense(license: string | { type?: string } | unknown): string | undefined {
+  if (typeof license === 'string') {
+    return license;
+  }
+
+  if (
+    license &&
+    typeof license === 'object' &&
+    'type' in license &&
+    typeof license.type === 'string'
+  ) {
+    return license.type;
+  }
+
+  return undefined;
+}
+
+export interface Repository {
+  readonly type: string;
+  readonly url: string;
+}
+
+/**
+ * Formats repository field for webui.
+ * @see https://docs.npmjs.com/files/package.json#repository
+ */
+export function formatRepository(repository: string | { url?: string } | unknown): string | null {
+  if (typeof repository === 'string') {
+    return repository;
+  }
+
+  if (
+    repository &&
+    typeof repository === 'object' &&
+    'url' in repository &&
+    typeof repository.url === 'string'
+  ) {
+    return repository.url;
+  }
+
+  return null;
+}
+
+/**
+ * Normalizes the `bugs` field to its url.
+ * @see https://docs.npmjs.com/cli/configuring-npm/package-json#bugs
+ */
+export function getBugsUrl(bugs: unknown): string | null {
+  if (typeof bugs === 'string') {
+    return bugs;
+  }
+
+  if (bugs && typeof bugs === 'object' && 'url' in bugs && typeof bugs.url === 'string') {
+    return bugs.url;
+  }
+
+  return null;
+}
+
+/**
+ * Normalizes the `funding` field (string, object or array of both) to a url.
+ * @see https://docs.npmjs.com/cli/configuring-npm/package-json#funding
+ */
+export function getFundingUrl(funding: unknown): string | null {
+  const entries = Array.isArray(funding) ? funding : [funding];
+  // first *valid* url wins: a malformed entry must not hide a later valid one
+  for (const entry of entries) {
+    if (typeof entry === 'string' && isURL(entry)) {
+      return entry;
+    }
+    if (
+      entry &&
+      typeof entry === 'object' &&
+      'url' in entry &&
+      typeof entry.url === 'string' &&
+      isURL(entry.url)
+    ) {
+      return entry.url;
+    }
+  }
+
+  return null;
+}
+
+export function formatDate(lastUpdate: string | number): string {
+  return dayjs(new Date(lastUpdate)).format(TIMEFORMAT);
+}
+
+export function formatDateDistance(lastUpdate: Date | string | number): string {
+  return dayjs(new Date(lastUpdate)).fromNow();
+}
+
+/**
+ * For <LastSync /> component
+ * @param {array} uplinks
+ */
+export function getLastUpdatedPackageTime(uplinks: UpLinks = {}): string {
+  let lastUpdate = 0;
+  Object.keys(uplinks).forEach(function computeUplink(upLinkName): void {
+    const status = uplinks[upLinkName];
+    if (status.fetched > lastUpdate) {
+      lastUpdate = status.fetched;
+    }
+  });
+
+  return lastUpdate ? formatDate(lastUpdate) : '';
+}
+
+/**
+ * For <LastSync /> component
+ * @param {Object} time
+ * @returns {Array} last 3 releases
+ */
+export function getRecentReleases(time: Time = {}): Time[] {
+  const recent = Object.keys(time).map((version) => ({
+    version,
+    time: formatDate(time[version]),
+  }));
+
+  return recent.slice(recent.length - 3, recent.length).reverse();
+}
+
+export function getAuthorName(authorName?: string): string {
+  if (!authorName) {
+    return i18next.t('author-unknown');
+  }
+
+  if (authorName.toLowerCase() === 'anonymous') {
+    return i18next.t('author-anonymous');
+  }
+
+  return authorName;
+}
+
+export function getUplink(upLinkName: string, packageName: string): string | null {
+  // TODO: make this a config like "uplinks: npmjs: web: https://www.npmjs.com/package/"
+  switch (upLinkName) {
+    case 'npmjs':
+      return `https://www.npmjs.com/package/${packageName}`;
+  }
+  return null;
+}
+
+export function fileSizeSI(
+  a: number,
+  b?: typeof Math,
+  c?: (p: number) => number,
+  d?: number,
+  e?: number
+): string {
+  b = Math;
+  c = b.log;
+  d = 1e3;
+  e = (c(a) / c(d)) | 0;
+  const size = a / b.pow(d, e);
+  // no decimals for Bytes
+  if (e === 0) {
+    return Math.floor(size) + ' Bytes';
+  } else {
+    return size.toFixed(1) + ' ' + 'kMGTPEZY'[--e] + 'B';
+  }
+}

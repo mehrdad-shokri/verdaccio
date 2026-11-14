@@ -1,0 +1,221 @@
+import compression from 'compression';
+import cors from 'cors';
+import buildDebug from 'debug';
+import type { Express } from 'express';
+import express from 'express';
+import { get } from 'lodash-es';
+import AuditMiddleware from 'verdaccio-audit';
+
+import apiEndpoint from '@verdaccio/api';
+import { Auth } from '@verdaccio/auth';
+import { Config as AppConfig } from '@verdaccio/config';
+import type { pluginUtils } from '@verdaccio/core';
+import {
+  API_ERROR,
+  HEADERS,
+  PLUGIN_CATEGORY,
+  PLUGIN_PREFIX,
+  errorUtils,
+  pkgUtils,
+  pluginUtils as pluginSanity,
+} from '@verdaccio/core';
+import { asyncLoadPlugin } from '@verdaccio/loaders';
+import { logger } from '@verdaccio/logger';
+import {
+  PACKAGE_API_ENDPOINTS,
+  validatePackageVersionStatus,
+  dotfiles,
+  errorReportingMiddleware,
+  final,
+  handleError,
+  log,
+  rateLimit,
+  registerBodyParser,
+  userAgent,
+  WebUrlsNamespace,
+} from '@verdaccio/middleware';
+import { Storage } from '@verdaccio/store';
+import type { ConfigYaml, Config as IConfig } from '@verdaccio/types';
+import webMiddleware from '@verdaccio/web';
+
+import type { $NextFunctionVer, $RequestExtend, $ResponseExtend } from '../types/custom';
+import hookDebug from './debug';
+
+const debug = buildDebug('verdaccio:server');
+const currentDir = import.meta.dirname;
+const { version } = pkgUtils.getPackageJson(currentDir, '..');
+
+export interface DefineAPIOptions {
+  /** Version shown by the web UI; defaults to the `@verdaccio/server` version. */
+  version?: string;
+}
+
+export const defineAPI = async function (
+  config: IConfig,
+  storage: Storage,
+  options: DefineAPIOptions = {}
+): Promise<Express> {
+  const appVersion = options.version ?? version ?? '';
+  const auth = new Auth(config, logger);
+  await auth.init();
+  const app = express();
+  // run in production mode by default, just in case
+  // it shouldn't make any difference anyway
+  app.set('env', process.env.NODE_ENV || 'production');
+  if (config.server?.trustProxy) {
+    app.set('trust proxy', config.server.trustProxy);
+  }
+  app.use(config.server?.cors ? cors(config.server.cors) : cors());
+  app.use(rateLimit(config.server?.rateLimit));
+
+  // mime-db marks application/octet-stream as compressible, so the default
+  // compression() filter would re-gzip every (already gzipped) .tgz tarball
+  // for clients that accept gzip — npm and undici do by default. That wastes
+  // CPU on every download and strips the Content-Length header. Skip
+  // compression for tarball responses; JSON metadata stays compressed.
+  const compressionFilter = (req, res): boolean => {
+    const contentType = String(res.getHeader(HEADERS.CONTENT_TYPE) ?? '');
+    if (contentType.startsWith('application/octet-stream')) {
+      return false;
+    }
+    return compression.filter(req, res);
+  };
+
+  app.use(dotfiles(config.server?.dotfiles ?? 'ignore'));
+
+  const errorReportingMiddlewareWrap = errorReportingMiddleware(logger);
+
+  // Router setup
+  app.use(
+    log(logger, {
+      hideStaticLogs: config.server?.hideStaticLogs ?? true,
+      hidePingLogs: config.server?.hidePingLogs ?? true,
+    })
+  );
+  app.use(errorReportingMiddlewareWrap);
+  app.use(userAgent(config));
+  app.use(compression({ filter: compressionFilter }));
+
+  // Body parser for JSON requests must be registered before plugins
+  // so plugins can access req.body instead of manually reading the stream
+  // This prevents "stream is not readable" errors when plugins try to read req.body
+  registerBodyParser(app, config);
+
+  app.get(
+    '/favicon.ico',
+    function (req: $RequestExtend, res: $ResponseExtend, next: $NextFunctionVer): void {
+      req.url = '/-/static/favicon.ico';
+      next();
+    }
+  );
+
+  // Hook for tests only
+  if (config._debug) {
+    hookDebug(app, config.configPath);
+  }
+
+  const plugins: pluginUtils.ExpressMiddleware<IConfig, {}, Auth>[] = await asyncLoadPlugin(
+    config.middlewares,
+    {
+      config,
+      logger,
+    },
+    pluginSanity.middlewareSanityCheck,
+    false,
+    config.server?.pluginPrefix ?? PLUGIN_PREFIX,
+    PLUGIN_CATEGORY.MIDDLEWARE
+  );
+
+  if (plugins.length === 0) {
+    const auditPlugin = new AuditMiddleware(
+      { enabled: true, strict_ssl: true },
+      { config, logger }
+    );
+    logger.info(
+      { name: 'verdaccio-audit', pluginCategory: PLUGIN_CATEGORY.MIDDLEWARE },
+      'plugin @{name} successfully loaded (@{pluginCategory})'
+    );
+    plugins.push(auditPlugin);
+  }
+
+  // Register JWT middleware so middleware plugins can access req.remote_user.
+  const apiAuthRouter = express.Router();
+  apiAuthRouter.use(WebUrlsNamespace.endpoints, (_req, _res, next) => next('router'));
+  apiAuthRouter.get(PACKAGE_API_ENDPOINTS.version_status, validatePackageVersionStatus);
+  apiAuthRouter.use(auth.apiJWTmiddleware());
+  app.use(apiAuthRouter);
+
+  // Ensure sequential execution in order, and that each registration completes before the next one starts
+  for (const plugin of plugins) {
+    plugin.register_middlewares(app, auth, storage);
+  }
+
+  // For package manager requests
+  app.use(apiEndpoint(config, auth, storage, logger));
+
+  // For WebUI & WebUI API
+  if (get(config, 'web.enabled', get(config, 'web.enable', true))) {
+    app.use((_req, res, next) => {
+      res.locals.app_version = appVersion;
+      next();
+    });
+    const middleware = await webMiddleware(config, auth, storage, logger);
+    app.use(middleware);
+  } else {
+    app.get('/', function (req: $RequestExtend, res: $ResponseExtend, next: $NextFunctionVer) {
+      next(errorUtils.getNotFound(API_ERROR.WEB_DISABLED));
+    });
+  }
+
+  // Catch 404
+  app.get('/{*any}', function (req: $RequestExtend, res: $ResponseExtend, next: $NextFunctionVer) {
+    next(errorUtils.getNotFound('resource not found'));
+  });
+
+  app.use(handleError(logger));
+
+  // app.use(function (
+  //   err: HttpError,
+  //   req: $RequestExtend,
+  //   res: $ResponseExtend,
+  //   next: $NextFunctionVer
+  // ) {
+  //   if (_.isError(err)) {
+  //     if (err.code === 'ECONNABORT' && res.statusCode === HTTP_STATUS.NOT_MODIFIED) {
+  //       return next();
+  //     }
+  //     if (_.isFunction(res.locals.report_error) === false) {
+  //       // in case of very early error this middleware may not be loaded before error is generated
+  //       // fixing that
+  //       errorReportingMiddlewareWrap(req, res, _.noop);
+  //     }
+  //     res.locals.report_error(err);
+  //   } else {
+  //     // Fall to Middleware.final
+  //     return next(err);
+  //   }
+  // });
+
+  app.use(final);
+
+  return app;
+};
+
+const startServer = async function startServer(configHash: ConfigYaml): Promise<Express> {
+  debug('start server');
+  const config: IConfig = new AppConfig({ ...configHash } as any);
+  const storage = new Storage(config, logger);
+  try {
+    // waits until init calls have been completed
+    debug('storage init start');
+    await storage.init(config);
+    debug('storage init end');
+  } catch (err: any) {
+    logger.error({ error: err.msg }, 'storage has failed: @{error}');
+    throw new Error(err);
+  }
+  return await defineAPI(config, storage);
+};
+
+export { startServer };
+export default startServer;

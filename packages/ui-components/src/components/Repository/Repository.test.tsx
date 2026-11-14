@@ -1,0 +1,120 @@
+import React from 'react';
+import { describe, expect, test } from 'vitest';
+
+import data from '../../../vitest/components/Repository/data.json';
+import { render, screen } from '../../test/test-react-testing-library';
+import Repository from './Repository';
+
+describe('<Repository /> component', () => {
+  test('should load the component in default state', () => {
+    const { container } = render(<Repository packageMeta={data} />);
+    // data.latest has no repository field, so the component renders nothing
+    expect(container.firstChild).toBeNull();
+  });
+
+  test('should render repository link when valid url is provided', () => {
+    const packageMeta = {
+      ...data,
+      latest: {
+        ...data?.latest,
+        repository: {
+          type: 'git',
+          url: 'git+https://github.com/verdaccio/monorepo.git',
+        },
+      },
+    };
+
+    render(<Repository packageMeta={packageMeta} />);
+    expect(screen.getByText('sidebar.repository.title')).toBeTruthy();
+    expect(screen.getByTestId('repositoryID')).toBeTruthy();
+    const link = screen.getByRole('link');
+    expect(link).toHaveAttribute('href', 'https://github.com/verdaccio/monorepo.git');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  test('should render repository link for the string form of repository', () => {
+    const packageMeta = {
+      ...data,
+      latest: {
+        ...data?.latest,
+        repository: 'https://github.com/verdaccio/monorepo',
+      },
+    };
+
+    render(<Repository packageMeta={packageMeta} />);
+    expect(screen.getByRole('link')).toHaveAttribute(
+      'href',
+      'https://github.com/verdaccio/monorepo'
+    );
+  });
+
+  test('should rewrite git+ssh urls to a browsable https link', () => {
+    const packageMeta = {
+      ...data,
+      latest: {
+        ...data?.latest,
+        repository: {
+          type: 'git',
+          url: 'git+ssh://git@github.com/verdaccio/monorepo.git',
+        },
+      },
+    };
+
+    render(<Repository packageMeta={packageMeta} />);
+    expect(screen.getByRole('link')).toHaveAttribute(
+      'href',
+      'https://github.com/verdaccio/monorepo.git'
+    );
+  });
+
+  test('should rewrite git:// urls to a browsable https link', () => {
+    const packageMeta = {
+      ...data,
+      latest: {
+        ...data?.latest,
+        repository: {
+          type: 'git',
+          url: 'git://github.com/verdaccio/monorepo.git',
+        },
+      },
+    };
+
+    render(<Repository packageMeta={packageMeta} />);
+    expect(screen.getByRole('link')).toHaveAttribute(
+      'href',
+      'https://github.com/verdaccio/monorepo.git'
+    );
+  });
+
+  test('should render the component in with no repository data', () => {
+    const packageMeta = {
+      ...data,
+      latest: {
+        ...data?.latest,
+        repository: undefined,
+      },
+    };
+
+    const { queryByText } = render(<Repository packageMeta={packageMeta} />);
+
+    expect(queryByText('Repository')).toBeFalsy();
+  });
+
+  test('should render the component in with invalid url', () => {
+    const packageMeta = {
+      ...data,
+      latest: {
+        ...data?.latest,
+        repository: {
+          type: 'git',
+          url: 'git://github.com/verdaccio/ui.git',
+        },
+      },
+    };
+
+    const { queryByText } = render(<Repository packageMeta={packageMeta} />);
+
+    expect(queryByText('Repository')).toBeFalsy();
+  });
+});

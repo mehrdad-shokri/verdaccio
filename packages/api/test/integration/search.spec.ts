@@ -1,0 +1,453 @@
+import MockDate from 'mockdate';
+import nock from 'nock';
+import supertest from 'supertest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+
+import { HEADERS, HEADER_TYPE, HTTP_STATUS } from '@verdaccio/core';
+
+import { createUser, initializeServer, publishVersionWithToken } from './_helper';
+
+describe('search', () => {
+  let app;
+  beforeEach(async () => {
+    app = await initializeServer('search.yaml');
+  });
+
+  afterEach(() => {
+    MockDate.reset();
+    nock.cleanAll();
+    nock.abortPendingRequests();
+  });
+
+  test.each(['', '&size=0', '&from=20&size=10'])(
+    'returns the current UTC ISO time even for empty results (%s)',
+    async (pagination) => {
+      MockDate.set('2026-09-11T00:30:00.123+02:00');
+      const first = await supertest(app)
+        .get(`/-/v1/search?text=missing${pagination}`)
+        .expect(HTTP_STATUS.OK);
+      expect(first.body).toEqual({
+        objects: [],
+        total: 0,
+        time: '2026-09-10T22:30:00.123Z',
+      });
+
+      MockDate.set('2026-09-11T00:31:00.456+02:00');
+      const second = await supertest(app)
+        .get(`/-/v1/search?text=missing${pagination}`)
+        .expect(HTTP_STATUS.OK);
+      expect(second.body.time).toBe('2026-09-10T22:31:00.456Z');
+    }
+  );
+
+  test.each(['2021-01-01T00:00:00.000Z', undefined, 'invalid date'])(
+    'timestamps the completed search independently of uplink time (%s)',
+    async (uplinkTime) => {
+      const published = '2020-01-02T03:04:05.678Z';
+      const responseTime = '2026-09-12T00:00:00.000Z';
+      const uplink = nock('https://registry.npmjs.org')
+        .get('/-/v1/search')
+        .query(true)
+        .reply(200, () => {
+          MockDate.set(responseTime);
+          return {
+            objects: [
+              {
+                package: { name: 'remote', version: '1.0.0', date: published },
+              },
+            ],
+            total: 1,
+            time: uplinkTime,
+          };
+        });
+      const remoteApp = await initializeServer('search-abort.yaml');
+      MockDate.set('2026-09-11T23:59:59.999Z');
+      const response = await supertest(remoteApp)
+        .get('/-/v1/search?text=remote')
+        .expect(HTTP_STATUS.OK);
+      expect(response.body.time).toBe(responseTime);
+      expect(response.body.objects[0].package.date).toBe(published);
+      expect(uplink.isDone()).toBe(true);
+    }
+  );
+
+  describe('search authenticated', () => {
+    test.each([['foo']])('should return a foo private package', async (pkg) => {
+      const mockDate = '2018-01-14T11:17:40.712Z';
+      MockDate.set(mockDate);
+      const res = await createUser(app, 'test', 'test');
+      await publishVersionWithToken(app, pkg, '1.0.0', res.body.token);
+      // this should not be displayed as part of the search
+      await publishVersionWithToken(app, 'private-auth', '1.0.0', res.body.token);
+      const responseTime = '2026-09-11T13:45:30.123Z';
+      MockDate.set(responseTime);
+      const response = await supertest(app)
+        .get(
+          `/-/v1/search?text=${encodeURIComponent(
+            pkg
+          )}&size=2000&from=0&quality=1&popularity=0.1&maintenance=0.1`
+        )
+        .set(HEADERS.ACCEPT, HEADERS.JSON)
+        .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+        .expect(HEADERS.CONTENT_TYPE, HEADERS.JSON_CHARSET)
+        .expect(HTTP_STATUS.OK);
+      expect(response.body).toEqual({
+        objects: [
+          {
+            package: {
+              author: {
+                email: 'user@domain.com',
+                name: 'User NPM',
+              },
+              date: mockDate,
+              description: 'package generated',
+              keywords: [],
+              license: 'ISC',
+              maintainers: [
+                {
+                  email: '',
+                  name: 'test',
+                  username: 'test',
+                },
+              ],
+              name: pkg,
+              publisher: {
+                email: '',
+                username: 'foo',
+              },
+              version: '1.0.0',
+            },
+            score: {
+              detail: {
+                maintenance: 0,
+                popularity: 1,
+                quality: 1,
+              },
+              final: 1,
+            },
+            searchScore: 1,
+            verdaccioPkgCached: false,
+            verdaccioPrivate: true,
+          },
+        ],
+        time: responseTime,
+        total: 1,
+      });
+      expect(response.body.objects[0].package).not.toHaveProperty('scope');
+    });
+
+    test.each([['@scope/foo']])('should return a scoped foo private package', async (pkg) => {
+      const mockDate = '2018-01-14T11:17:40.712Z';
+      MockDate.set(mockDate);
+      const res = await createUser(app, 'test', 'test');
+      await publishVersionWithToken(app, pkg, '1.0.0', res.body.token);
+      // this should not be displayed as part of the search
+      await publishVersionWithToken(app, '@private/auth', '1.0.0', res.body.token);
+      const responseTime = '2026-09-11T13:45:30.123Z';
+      MockDate.set(responseTime);
+      const response = await supertest(app)
+        .get(
+          `/-/v1/search?text=${encodeURIComponent(
+            pkg
+          )}&size=2000&from=0&quality=1&popularity=0.1&maintenance=0.1`
+        )
+        .set(HEADERS.ACCEPT, HEADERS.JSON)
+        .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON)
+        .expect(HEADERS.CONTENT_TYPE, HEADERS.JSON_CHARSET)
+        .expect(HTTP_STATUS.OK);
+      expect(response.body).toEqual({
+        objects: [
+          {
+            package: {
+              author: {
+                email: 'user@domain.com',
+                name: 'User NPM',
+              },
+              date: mockDate,
+              description: 'package generated',
+              keywords: [],
+              license: 'ISC',
+              maintainers: [
+                {
+                  email: '',
+                  name: 'test',
+                  username: 'test',
+                },
+              ],
+              name: pkg,
+              publisher: {
+                email: '',
+                username: 'foo',
+              },
+              version: '1.0.0',
+            },
+            score: {
+              detail: {
+                maintenance: 0,
+                popularity: 1,
+                quality: 1,
+              },
+              final: 1,
+            },
+            searchScore: 1,
+            verdaccioPkgCached: false,
+            verdaccioPrivate: true,
+          },
+        ],
+        time: responseTime,
+        total: 1,
+      });
+      expect(response.body.objects[0].package.name).toBe('@scope/foo');
+      expect(response.body.objects[0].package).not.toHaveProperty('scope');
+    });
+  });
+  describe('pagination', () => {
+    test('should paginate remote results only once', async () => {
+      const packages = Array.from({ length: 60 }, (_, i) => ({
+        package: { name: `remote-${i}`, version: '1.0.0' },
+      }));
+      const uplink = nock('https://registry.npmjs.org')
+        .get('/-/v1/search')
+        .query(true)
+        .reply(200, (uri) => {
+          const query = new URL(uri, 'https://registry.npmjs.org').searchParams;
+          const from = Number(query.get('from'));
+          const size = Number(query.get('size'));
+          return {
+            objects: packages.slice(from, from + size),
+            total: packages.length,
+          };
+        });
+      const remoteApp = await initializeServer('search-abort.yaml');
+      const response = await supertest(remoteApp)
+        .get('/-/v1/search?text=remote&from=20&size=20')
+        .expect(HTTP_STATUS.OK);
+      expect(response.body.objects.map((item) => item.package.name)).toEqual(
+        packages.slice(20, 40).map((item) => item.package.name)
+      );
+      expect(uplink.isDone()).toBe(true);
+    });
+
+    test('should honor the size and from parameters', async () => {
+      const res = await createUser(app, 'test', 'test');
+      await publishVersionWithToken(app, 'foo-a', '1.0.0', res.body.token);
+      await publishVersionWithToken(app, 'foo-b', '1.0.0', res.body.token);
+      await publishVersionWithToken(app, 'foo-c', '1.0.0', res.body.token);
+
+      MockDate.set('2026-09-11T13:45:30.123Z');
+      const firstPage = await supertest(app)
+        .get('/-/v1/search?text=foo&size=2&from=0')
+        .set(HEADERS.ACCEPT, HEADERS.JSON)
+        .expect(HEADERS.CONTENT_TYPE, HEADERS.JSON_CHARSET)
+        .expect(HTTP_STATUS.OK);
+      expect(firstPage.body.objects).toHaveLength(2);
+      expect(firstPage.body.time).toBe('2026-09-11T13:45:30.123Z');
+
+      MockDate.set('2026-09-11T13:46:30.456Z');
+      const secondPage = await supertest(app)
+        .get('/-/v1/search?text=foo&size=2&from=2')
+        .set(HEADERS.ACCEPT, HEADERS.JSON)
+        .expect(HEADERS.CONTENT_TYPE, HEADERS.JSON_CHARSET)
+        .expect(HTTP_STATUS.OK);
+      expect(secondPage.body.objects).toHaveLength(1);
+      expect(secondPage.body.time).toBe('2026-09-11T13:46:30.456Z');
+
+      for (const pagination of ['size=2&from=3', 'size=0&from=0']) {
+        const emptyPage = await supertest(app)
+          .get(`/-/v1/search?text=foo&${pagination}`)
+          .expect(HTTP_STATUS.OK);
+        expect(emptyPage.body).toEqual({
+          objects: [],
+          total: 0,
+          time: '2026-09-11T13:46:30.456Z',
+        });
+      }
+
+      const names = [...firstPage.body.objects, ...secondPage.body.objects].map(
+        (item) => item.package.name
+      );
+      expect(names.sort()).toEqual(['foo-a', 'foo-b', 'foo-c']);
+    });
+
+    test('should fall back to defaults on invalid size and from values', async () => {
+      const res = await createUser(app, 'test', 'test');
+      await publishVersionWithToken(app, 'foo-a', '1.0.0', res.body.token);
+
+      MockDate.set('2026-09-11T13:45:30.123Z');
+      const response = await supertest(app)
+        .get('/-/v1/search?text=foo&size=-1&from=invalid')
+        .set(HEADERS.ACCEPT, HEADERS.JSON)
+        .expect(HEADERS.CONTENT_TYPE, HEADERS.JSON_CHARSET)
+        .expect(HTTP_STATUS.OK);
+      expect(response.body.objects).toHaveLength(1);
+      expect(response.body.time).toBe('2026-09-11T13:45:30.123Z');
+    });
+  });
+
+  describe('rate limiting', () => {
+    test('should reject requests above the configured user rate limit', async () => {
+      const app = await initializeServer('search-rate-limit.yaml');
+      const searchUrl = '/-/v1/search?text=foo&size=20&from=0';
+
+      await supertest(app).get(searchUrl).set(HEADERS.ACCEPT, HEADERS.JSON).expect(HTTP_STATUS.OK);
+      await supertest(app).get(searchUrl).set(HEADERS.ACCEPT, HEADERS.JSON).expect(HTTP_STATUS.OK);
+      // third request exceeds `userRateLimit.max: 2` in search-rate-limit.yaml
+      const response = await supertest(app)
+        .get(searchUrl)
+        .set(HEADERS.ACCEPT, HEADERS.JSON)
+        .expect(429);
+      expect(response.body).not.toHaveProperty('time');
+    });
+  });
+
+  describe('uplink forwarding', () => {
+    afterEach(() => {
+      nock.cleanAll();
+    });
+
+    test('should start bounded uplink pages at zero even for a large client offset', async () => {
+      let forwardedPath;
+      nock('https://registry.npmjs.org')
+        .get(/\/-\/v1\/search/)
+        .reply(200, function () {
+          forwardedPath = this.req.path;
+          return { objects: [], total: 0, time: '' };
+        });
+
+      const app = await initializeServer('search-abort.yaml');
+      await supertest(app)
+        .get('/-/v1/search?text=clamp-check&size=99999&from=99999')
+        .set(HEADERS.ACCEPT, HEADERS.JSON)
+        .expect(HTTP_STATUS.OK);
+
+      const forwardedQuery = new URL(forwardedPath, 'https://registry.npmjs.org').searchParams;
+      expect(forwardedQuery.get('text')).toBe('clamp-check');
+      expect(forwardedQuery.get('size')).toBe('250');
+      expect(forwardedQuery.get('from')).toBe('0');
+    });
+
+    test('should isolate client headers from configured uplink headers', async () => {
+      const app = await initializeServer('search-uplink-headers.yaml');
+      const user = await createUser(app, 'search-client', 'password');
+      const clientToken = user.body.token;
+      let received: Record<string, string | string[] | undefined> = {};
+      const request = nock('https://registry.npmjs.org')
+        .get(/\/-\/v1\/search/)
+        .reply(200, function () {
+          received = this.req.headers;
+          return { objects: [], total: 0, time: '' };
+        });
+
+      await supertest(app)
+        .get('/-/v1/search?text=header-security&size=20&from=0')
+        .set(HEADERS.AUTHORIZATION, `Bearer ${clientToken}`)
+        .set('Cookie', 'session=client-secret')
+        .set('npm-otp', '123456')
+        .set('npm-session', 'client-session')
+        .set('npm-command', 'search')
+        .set('npm-scope', '@private')
+        .set('npm-auth-type', 'legacy')
+        .set('proxy-authorization', 'Basic proxy-secret')
+        .set('x-forwarded-for', '192.0.2.1')
+        .set('x-real-ip', '192.0.2.2')
+        .set('forwarded', 'for=192.0.2.3')
+        .set('referer', 'https://client.example/private')
+        .set('x-client-secret', 'secret')
+        .set('x-uplink-header', 'client-value')
+        .expect(HTTP_STATUS.OK);
+
+      expect(request.isDone()).toBe(true);
+      expect(received.authorization).toBe('Bearer uplink-token');
+      expect(received['x-uplink-header']).toBe('configured-value');
+      for (const header of [
+        'cookie',
+        'npm-otp',
+        'npm-session',
+        'npm-command',
+        'npm-scope',
+        'npm-auth-type',
+        'proxy-authorization',
+        'x-forwarded-for',
+        'x-real-ip',
+        'forwarded',
+        'referer',
+        'x-client-secret',
+      ]) {
+        expect(received[header]).toBeUndefined();
+      }
+      expect(Object.values(received).join(' ')).not.toContain(clientToken);
+    });
+
+    test('should preserve optional package fields returned by an uplink', async () => {
+      nock('https://registry.npmjs.org')
+        .get(/\/-\/v1\/search/)
+        .reply(200, {
+          objects: [
+            {
+              package: {
+                name: 'remote-license-package',
+                version: '1.0.0',
+                description: 'remote package',
+                license: 'BSD-3-Clause',
+                scope: 'remote-scope',
+                keywords: [],
+                date: '2018-01-14T11:17:40.712Z',
+                publisher: { username: 'remote-user', email: '' },
+                maintainers: [{ username: 'remote-user', email: '' }],
+                links: {
+                  npm: 'https://www.npmjs.com/package/remote-license-package',
+                },
+              },
+              score: {
+                final: 1,
+                detail: { maintenance: 1, popularity: 1, quality: 1 },
+              },
+              searchScore: 1,
+            },
+          ],
+          total: 1,
+          time: '2018-01-14T11:17:40.712Z',
+        });
+
+      const app = await initializeServer('search-abort.yaml');
+      const response = await supertest(app)
+        .get('/-/v1/search?text=remote-license-package&size=20&from=0')
+        .set(HEADERS.ACCEPT, HEADERS.JSON)
+        .expect(HTTP_STATUS.OK);
+
+      expect(response.body.objects).toHaveLength(1);
+      expect(response.body.objects[0].package.license).toBe('BSD-3-Clause');
+      expect(response.body.objects[0].package.scope).toBe('remote-scope');
+      expect(response.body.objects[0].package.links).toEqual({
+        npm: 'https://www.npmjs.com/package/remote-license-package',
+      });
+    });
+  });
+
+  describe('error handling', () => {
+    afterEach(() => {
+      nock.cleanAll();
+    });
+
+    test('should abort the request when the client disconnects', async () => {
+      nock('https://registry.npmjs.org')
+        .get(/\/-\/v1\/search/)
+        .delay(5000)
+        .reply(200, { objects: [], total: 0, time: '' });
+
+      const app = await initializeServer('search-abort.yaml');
+      const searchUrl =
+        '/-/v1/search?text=abort-integration&size=20&from=0&quality=0.65&popularity=0.98&maintenance=0.5';
+      const req = supertest(app)
+        .get(searchUrl)
+        .set(HEADERS.ACCEPT, HEADERS.JSON)
+        .set(HEADER_TYPE.CONTENT_TYPE, HEADERS.JSON);
+
+      setImmediate(() => {
+        req.abort();
+      });
+
+      await expect(req).rejects.toThrow();
+    });
+  });
+});

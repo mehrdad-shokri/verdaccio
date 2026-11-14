@@ -1,0 +1,11 @@
+import { errorUtils } from '@verdaccio/core';
+
+module.exports = function () {
+  return {
+    authenticate(user, pass, callback) {
+      // we return an 500 error, the second argument must be false.
+      // https://verdaccio.org/docs/plugin-auth
+      callback(errorUtils.getInternalError(API_ERROR.INTERNAL_SERVER_ERROR), false);
+    },
+  };
+};

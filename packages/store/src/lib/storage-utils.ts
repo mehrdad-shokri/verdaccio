@@ -1,0 +1,599 @@
+import buildDebug from 'debug';
+import { isNil, trim } from 'lodash-es';
+import semver from 'semver';
+
+import type { searchUtils } from '@verdaccio/core';
+import {
+  ANONYMOUS_USER,
+  API_ERROR,
+  DIST_TAGS,
+  HTTP_STATUS,
+  MAINTAINERS,
+  USERS,
+  cryptoUtils,
+  errorUtils,
+  pkgUtils,
+  validationUtils,
+} from '@verdaccio/core';
+import type {
+  Author,
+  DistFile,
+  GenericBody,
+  Manifest,
+  Person,
+  ReadmeOptions,
+  Version,
+} from '@verdaccio/types';
+
+import { sortVersionsAndFilterInvalid } from './versions-utils';
+
+const debug = buildDebug('verdaccio:storage:utils');
+
+export const STORAGE = {
+  PACKAGE_FILE_NAME: 'package.json',
+  FILE_EXIST_ERROR: 'EEXISTS',
+  NO_SUCH_FILE_ERROR: 'ENOENT',
+  DEFAULT_REVISION: '0-0000000000000000',
+};
+
+/**
+ * Create a new package in the storage, return a boilerplate package
+ * @param name package name
+ * @returns {Manifest}
+ */
+export function generatePackageTemplate(name: string): Manifest {
+  return {
+    // standard things
+    name,
+    versions: {},
+    time: {},
+    [USERS]: {},
+    [DIST_TAGS]: {},
+    [MAINTAINERS]: [],
+    _uplinks: {},
+    _distfiles: {},
+    _attachments: {},
+    _rev: '',
+  };
+}
+
+/**
+ * Normalize package properties, tags, revision id.
+ * @param {Object} pkg package reference.
+ */
+export function normalizePackage(pkg: Manifest): Manifest {
+  const pkgProperties = ['versions', 'dist-tags', '_distfiles', '_attachments', '_uplinks', 'time'];
+
+  pkgProperties.forEach((key): void => {
+    const pkgProp = pkg[key];
+
+    if (isNil(pkgProp) || validationUtils.isObject(pkgProp) === false) {
+      pkg[key] = {};
+    }
+  });
+
+  if (typeof pkg?._rev !== 'string') {
+    pkg._rev = STORAGE.DEFAULT_REVISION;
+  }
+
+  if (typeof pkg?._id !== 'string') {
+    pkg._id = pkg.name;
+  }
+
+  // normalize dist-tags
+  return normalizeDistTags(pkg);
+}
+
+export function generateRevision(rev: string): string {
+  const _rev = rev.split('-');
+
+  return (+_rev[0] || 0) + 1 + '-' + cryptoUtils.generateRandomHexString();
+}
+
+export function getLatestReadme(pkg: Manifest): string {
+  const versions = pkg['versions'] || {};
+  const distTags = pkg[DIST_TAGS] || {};
+  // FIXME: here is a bit tricky add the types
+  const latestVersion: Version | any = distTags['latest'] ? versions[distTags['latest']] || {} : {};
+  let readme = trim(pkg.readme || latestVersion.readme || '');
+  if (readme) {
+    return readme;
+  }
+
+  // In case of empty readme - trying to get ANY readme in the following order:
+  // 'next','beta','alpha','test','dev','canary'
+  const readmeDistTagsPriority = ['next', 'beta', 'alpha', 'test', 'dev', 'canary'];
+  readmeDistTagsPriority.forEach(function (tag): string | void {
+    if (readme) {
+      return readme;
+    }
+    const version: Version | any = distTags[tag] ? versions[distTags[tag]] || {} : {};
+    readme = trim(version.readme || readme);
+  });
+  return readme;
+}
+
+/**
+ * Cleanup readme from package version
+ *
+ * By default, we don't keep readmes for package versions, only one readme per package.
+ * Using publish.keep_readmes you can override this behavior and keep all readmes
+ * or only readmes for tagged versions.
+ */
+export function cleanUpReadme(
+  version: Version,
+  distTags?: GenericBody,
+  keepReadmes?: ReadmeOptions
+): Version {
+  if (keepReadmes === 'all') {
+    return version;
+  } else if (keepReadmes === 'tagged') {
+    if (distTags && Object.values(distTags).includes(version.version)) {
+      return version;
+    }
+  }
+
+  if (isNil(version) === false) {
+    version.readme = '';
+  }
+
+  return version;
+}
+
+export const WHITELIST = [
+  '_rev',
+  'name',
+  'versions',
+  'dist-tags',
+  'readme',
+  'time',
+  '_id',
+  'users',
+  'maintainers',
+];
+
+export function cleanUpLinksRef(result: Manifest, keepUpLinkData?: boolean): Manifest {
+  const propertyToKeep = [...WHITELIST];
+  if (keepUpLinkData === true) {
+    propertyToKeep.push('_uplinks');
+  }
+
+  for (const i in result) {
+    if (propertyToKeep.indexOf(i) === -1) {
+      // Remove sections like '_uplinks' from response
+      delete result[i];
+    }
+  }
+
+  return result;
+}
+
+// TODO: move to abstract storage
+// @deprecated use abstract.storage.ts:checkPackageRemote
+export function checkPackageRemote(
+  name: string,
+  isAllowPublishOffline: boolean,
+  syncMetadata: Function
+): Promise<any> {
+  return new Promise<void>((resolve, reject): void => {
+    syncMetadata(name, null, {}, (err, packageJsonLocal, upLinksErrors): void => {
+      // something weird
+      if (err && err.status !== HTTP_STATUS.NOT_FOUND) {
+        return reject(err);
+      }
+
+      // checking package exist already
+      if (isNil(packageJsonLocal) === false) {
+        return reject(errorUtils.getConflict(API_ERROR.PACKAGE_EXIST));
+      }
+
+      for (let errorItem = 0; errorItem < upLinksErrors.length; errorItem++) {
+        // checking error
+        // if uplink fails with a status other than 404, we report failure
+        if (isNil(upLinksErrors[errorItem][0]) === false) {
+          if (upLinksErrors[errorItem][0].status !== HTTP_STATUS.NOT_FOUND) {
+            if (isAllowPublishOffline) {
+              return resolve();
+            }
+
+            return reject(errorUtils.getServiceUnavailable(API_ERROR.UPLINK_OFFLINE_PUBLISH));
+          }
+        }
+      }
+
+      return resolve();
+    });
+  });
+}
+
+// @deprecated use export function mergeUplinkTimeIntoLocalNext
+export function mergeUplinkTimeIntoLocal(localMetadata: Manifest, remoteMetadata: Manifest): any {
+  if ('time' in remoteMetadata) {
+    return Object.assign({}, localMetadata.time, remoteMetadata.time);
+  }
+
+  return localMetadata.time;
+}
+
+export function mergeUplinkTimeIntoLocalNext(
+  cacheManifest: Manifest,
+  remoteManifest: Manifest
+): Manifest {
+  if ('time' in remoteManifest) {
+    // remote override cache time conflicts
+    return { ...cacheManifest, time: { ...cacheManifest.time, ...remoteManifest.time } };
+  }
+
+  return cacheManifest;
+}
+
+export function updateUpLinkMetadata(uplinkName: string, manifest: Manifest, etag: string) {
+  const _uplinks = {
+    ...manifest._uplinks,
+    [uplinkName]: {
+      etag,
+      fetched: Date.now(),
+    },
+  };
+  return {
+    ...manifest,
+    _uplinks,
+  };
+}
+
+export function prepareSearchPackage(data: Manifest): any {
+  const latest = pkgUtils.getLatest(data);
+
+  if (latest && data.versions[latest]) {
+    const version: Version = data.versions[latest];
+    const versions: any = { [latest]: 'latest' };
+    const pkg: any = {
+      name: version.name,
+      description: version.description,
+      [DIST_TAGS]: { latest },
+      maintainers: version.maintainers || [version.author].filter(Boolean),
+      author: version.author,
+      repository: version.repository,
+      readmeFilename: version.readmeFilename || '',
+      homepage: version.homepage,
+      keywords: version.keywords,
+      bugs: version.bugs,
+      license: version.license,
+      // time: {
+      //   modified: time,
+      // },
+      versions,
+    };
+
+    return pkg;
+  }
+}
+
+/** Maintainer names copied from an uplink. Never a local account. */
+export const UPSTREAM_MAINTAINER_PREFIX = '$uplink:';
+
+export function scopeUpstreamMaintainers(maintainers: Person[], uplinkName: string): Person[] {
+  const origin = uplinkName.length > 0 ? uplinkName : 'remote';
+  return maintainers.map((maintainer) => {
+    if (typeof maintainer === 'string') {
+      return scopeUpstreamMaintainerName(origin, maintainer);
+    }
+    const name = typeof maintainer?.name === 'string' ? maintainer.name : '';
+    return {
+      ...maintainer,
+      name: scopeUpstreamMaintainerName(origin, name),
+    };
+  });
+}
+
+function scopeUpstreamMaintainerName(uplinkName: string, name: string): string {
+  if (name.startsWith(UPSTREAM_MAINTAINER_PREFIX)) {
+    return name;
+  }
+  return `${UPSTREAM_MAINTAINER_PREFIX}${uplinkName}:${name}`;
+}
+
+export function maintainerAllowsLocalUser(
+  maintainer: Person,
+  username: string | undefined
+): boolean {
+  const name = typeof maintainer === 'string' ? maintainer : maintainer?.name;
+  // reserved uplink identities must not authorize the local user who registered that string
+  if (typeof name === 'string' && name.startsWith(UPSTREAM_MAINTAINER_PREFIX)) {
+    return false;
+  }
+  return name === username || name === ANONYMOUS_USER;
+}
+
+/**
+ * Function gets a local info and an info from uplinks and tries to merge it
+ exported for unit tests only.
+  * @param {*} cacheManifest
+  * @param {*} remoteManifest
+  */
+export function mergeVersions(cacheManifest: Manifest, remoteManifest: Manifest): Manifest {
+  let _cacheManifest = { ...cacheManifest };
+  const { versions, time } = remoteManifest;
+  // copy new versions to a cache
+  // NOTE: if a certain version was updated, we can't refresh it reliably
+  // however, we can refresh the deprecated status
+  for (const i in versions) {
+    if (typeof _cacheManifest.versions[i] === 'undefined') {
+      _cacheManifest.versions[i] = versions[i];
+    } else if (versions[i].deprecated) {
+      _cacheManifest.versions[i].deprecated = versions[i].deprecated;
+    }
+  }
+
+  for (const i in time) {
+    if (typeof _cacheManifest.time[i] === 'undefined') {
+      _cacheManifest.time[i] = time[i];
+    }
+  }
+
+  for (const distTag in remoteManifest[DIST_TAGS]) {
+    if (_cacheManifest[DIST_TAGS][distTag] !== remoteManifest[DIST_TAGS][distTag]) {
+      if (
+        !_cacheManifest[DIST_TAGS][distTag] ||
+        semver.lte(_cacheManifest[DIST_TAGS][distTag], remoteManifest[DIST_TAGS][distTag])
+      ) {
+        _cacheManifest[DIST_TAGS][distTag] = remoteManifest[DIST_TAGS][distTag];
+      }
+      if (
+        distTag === 'latest' &&
+        _cacheManifest[DIST_TAGS][distTag] === remoteManifest[DIST_TAGS][distTag]
+      ) {
+        // NOTE: this override the latest publish readme from local cache with
+        // the remote one
+        _cacheManifest = { ..._cacheManifest, readme: remoteManifest.readme };
+      }
+    }
+  }
+  return _cacheManifest;
+}
+
+/**
+ * Normalize dist-tags.
+ *
+ * There is a legacy behaviour where the dist-tags could be an array, in such
+ * case, the array is orderded and the highest version becames the
+ * latest.
+ *
+ * The dist-tag tags must be plain strigs, if the latest is empty (for whatever reason) is
+ * normalized to be the highest version available.
+ *
+ * This function cleans up every invalid version on dist-tags, but does not remove
+ * invalid versions from the manifest.
+ *
+ * @param {*} data
+ */
+export function normalizeDistTags(manifest: Manifest): Manifest {
+  let sorted;
+  // handle missing latest dist-tag
+  if (!manifest[DIST_TAGS].latest) {
+    // if there is no latest tag, set the highest known version based on semver sort
+    sorted = sortVersionsAndFilterInvalid(Object.keys(manifest.versions));
+    if (sorted?.length) {
+      // get the highest published version
+      manifest[DIST_TAGS].latest = sorted.pop();
+    }
+  }
+
+  for (const tag in manifest[DIST_TAGS]) {
+    // deprecated (will be removed un future majors)
+    // this should not happen, tags should be plain strings, legacy fallback
+    if (Array.isArray(manifest[DIST_TAGS][tag])) {
+      if (manifest[DIST_TAGS][tag].length) {
+        // sort array
+        // FIXME: this is clearly wrong, we need to research why this is like this.
+        // @ts-ignore
+        sorted = sortVersionsAndFilterInvalid(manifest[DIST_TAGS][tag]);
+        if (sorted.length) {
+          // use highest version based on semver sort
+          manifest[DIST_TAGS][tag] = sorted.pop();
+        }
+      } else {
+        delete manifest[DIST_TAGS][tag];
+      }
+    } else if (typeof manifest[DIST_TAGS][tag] === 'string') {
+      if (!semver.parse(manifest[DIST_TAGS][tag], true)) {
+        // if the version is invalid, delete the dist-tag entry
+        delete manifest[DIST_TAGS][tag];
+      }
+    }
+  }
+
+  return manifest;
+}
+
+export function hasDeprecatedVersions(pkgInfo: Manifest): boolean {
+  const { versions } = pkgInfo;
+  for (const version in versions) {
+    if (Object.prototype.hasOwnProperty.call(versions[version], 'deprecated')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function isDeprecatedManifest(manifest: Manifest): boolean {
+  return (
+    hasDeprecatedVersions(manifest) &&
+    (typeof manifest._attachments === 'undefined' ||
+      Object.keys(manifest._attachments).length === 0)
+  );
+}
+
+export function mapManifestToSearchPackageBody(
+  pkg: Manifest,
+  _searchItem: searchUtils.SearchItem
+): searchUtils.SearchPackageBody {
+  const latest = pkgUtils.getLatest(pkg);
+  const version: Version = pkg.versions[latest];
+  // packument maintainers carry `name`, but the npm search API contract uses
+  // `username` and the npm CLI crashes on entries without it — emit both
+  const maintainers = Array.isArray(version.maintainers)
+    ? version.maintainers.map((maintainer: any) =>
+        typeof maintainer === 'string'
+          ? { username: maintainer, email: '' }
+          : {
+              ...maintainer,
+              username: maintainer?.username ?? maintainer?.name ?? '',
+              email: maintainer?.email ?? '',
+            }
+      )
+    : [];
+  // npmjs fills `publisher` with the user who published the version; use
+  // `_npmUser` when the client provided it and fall back to the first
+  // maintainer (verdaccio sets it to the publishing user), otherwise the
+  // npm CLI renders "published by ???"
+  const publisher = version._npmUser?.name
+    ? { username: version._npmUser.name, email: version._npmUser.email ?? '' }
+    : (maintainers[0] ?? {});
+  const links: NonNullable<searchUtils.SearchPackageBody['links']> = {};
+  const repository =
+    typeof version.repository === 'string' ? version.repository : version.repository?.url;
+  const bugs = typeof version.bugs === 'string' ? version.bugs : version.bugs?.url;
+  if (version.homepage) {
+    links.homepage = version.homepage;
+  }
+  if (repository) {
+    links.repository = repository;
+  }
+  if (bugs) {
+    links.bugs = bugs;
+  }
+  const result: searchUtils.SearchPackageBody = {
+    name: version.name,
+    description: version.description,
+    version: latest,
+    license: version.license,
+    keywords: version.keywords,
+    date: pkg.time[latest],
+    // FIXME: type
+    author: version.author as any,
+    publisher,
+    maintainers,
+  };
+
+  if (Object.keys(links).length > 0) {
+    result.links = links;
+  }
+
+  return result;
+}
+
+export function normalizeContributors(contributors: Author[]): Author[] {
+  if (isNil(contributors)) {
+    return [];
+  } else if (contributors && !Array.isArray(contributors)) {
+    return [contributors];
+  } else if (typeof contributors === 'string') {
+    return [
+      {
+        name: contributors,
+      },
+    ];
+  }
+
+  return contributors;
+}
+
+/**
+ * Whether the tarball url path ends with the given file name (any query
+ * string or fragment is ignored, like the path parsing in
+ * `tarballUtils.extractTarballFromUrl`, which creates the `_distfiles`
+ * keys — if that parsing ever changes, this must change with it).
+ */
+export function tarballMatchesFilename(tarball: string, filename: string): boolean {
+  return tarball.split(/[?#]/)[0].endsWith(`/${filename}`);
+}
+
+/**
+ * Build a distfile record from a version's dist metadata when its tarball
+ * url matches the given file name.
+ */
+export function distFileFromVersion(
+  version: Version | undefined,
+  filename: string
+): DistFile | null {
+  const dist = version?.dist;
+
+  if (dist?.tarball && tarballMatchesFilename(dist.tarball, filename)) {
+    return { url: dist.tarball, sha: dist.shasum } as DistFile;
+  }
+
+  return null;
+}
+
+/**
+ * Resolve the distfile record for a tarball filename. Prefers the
+ * `_distfiles` bookkeeping, but falls back to the version metadata when the
+ * record is missing (storages written by other verdaccio versions cache
+ * versions without their distfile records, which made those tarballs
+ * permanently unavailable).
+ *
+ * Note: no extension pre-filter before the scan on purpose — GitHub
+ * Packages advertises tarball urls ending in a bare sha-256 digest.
+ * @param manifest cached manifest
+ * @param filename tarball file name, eg. pkg-1.0.0.tgz
+ */
+export function lookupDistFile(manifest: Manifest, filename: string): DistFile | null {
+  const distFile = manifest?._distfiles?.[filename];
+  if (isNil(distFile) === false) {
+    return distFile;
+  }
+
+  const versions = manifest?.versions ?? {};
+
+  // tarballs are conventionally named <basename>-<version>.tgz, so the
+  // version can usually be derived from the filename without scanning
+  // manifests that carry thousands of versions
+  const packageBasename = manifest?.name?.replace(/^.*\//, '');
+  if (packageBasename && filename.startsWith(`${packageBasename}-`) && filename.endsWith('.tgz')) {
+    const versionId = filename.slice(packageBasename.length + 1, -'.tgz'.length);
+    const distFromVersion = distFileFromVersion(versions[versionId], filename);
+
+    if (distFromVersion) {
+      debug('distfile record missing for %o, using version %o dist', filename, versionId);
+      return distFromVersion;
+    }
+  }
+
+  // unconventional tarball names: fall back to a scan
+  for (const versionId in versions) {
+    const distFromVersion = distFileFromVersion(versions[versionId], filename);
+
+    if (distFromVersion) {
+      debug('distfile record missing for %o, using version %o dist', filename, versionId);
+      return distFromVersion;
+    }
+  }
+
+  debug('no distfile record or version dist found for %o', filename);
+  return null;
+}
+
+/**
+ * Whether an uplink's configured url serves the given tarball url: same
+ * protocol, same host and the uplink path is a prefix of the tarball path.
+ * WHATWG URL normalizes default ports (https://h:443 === https://h).
+ */
+export function uplinkServesUrl(uplinkUrl: URL, tarballUrl: string): boolean {
+  try {
+    const parsed = new URL(tarballUrl);
+    // Compare on a path segment boundary: an uplink at /registry must not
+    // match tarballs under /registry2/... (wrong-uplink selection would send
+    // the uplink's credentials to a sibling path).
+    const basePath = uplinkUrl.pathname.endsWith('/')
+      ? uplinkUrl.pathname
+      : `${uplinkUrl.pathname}/`;
+    return (
+      parsed.protocol === uplinkUrl.protocol &&
+      parsed.host === uplinkUrl.host &&
+      parsed.pathname.startsWith(basePath)
+    );
+  } catch {
+    return false;
+  }
+}
